@@ -1,0 +1,163 @@
+{% extends 'base.html' %}
+{% block title %}Транзакции для {{ company.name }}{% endblock %}
+
+{% block content %}
+<a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm mb-3">&larr; Назад к фирмам</a>
+<h2>Транзакции для: {{ company.name }}</h2>
+
+<div class="card bg-light my-4">
+    <div class="card-body">
+        <h5 class="card-title">Загрузить новый CSV</h5>
+        <form action="{{ url_for('upload_csv', company_id=company.id) }}" method="POST" enctype="multipart/form-data">
+            <div class="input-group">
+                <input type="file" class="form-control" name="csv_file" accept=".csv" required>
+                <button class="btn btn-primary" type="submit">Загрузить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<h3>Необработанные транзакции</h3>
+
+<div class="table-responsive">
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Дата</th>
+                <th>Наименование (Referens)</th>
+                <th>Сумма (Ins/Uttag)</th>
+                <th>Банк. счет</th>
+                <th>Контра-счет</th>
+                <th>Bilaga</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for trans in transactions %}
+                <tr class="transaction-row" 
+                    style="cursor: pointer;"
+                    data-bs-toggle="modal" 
+                    data-bs-target="#editModal"
+                    data-trans-id="{{ trans.id }}"
+                    data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}"
+                    data-referens="{{ trans.referens }}"
+                    data-amount="{{ '%.2f'|format(trans.belopp) }}"
+                    data-konto-bank="{{ trans.konto_bank }}"
+                    data-konto-contra="{{ trans.konto_contra }}"
+                >
+                    <td>{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ trans.referens }}</td>
+                    <td>{{ "%.2f"|format(trans.belopp) }}</td>
+                    <td>{{ trans.konto_bank }}</td>
+                    <td>{{ trans.konto_contra }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary">Добавить</button>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<hr>
+
+<form action="{{ url_for('generate_sie', company_id=company.id) }}" method="POST" class="mt-3">
+    <button type="submit" class="btn btn-success">Сгенерировать SIE файл</button>
+</form>
+
+
+<div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editModalLabel">Редактировать транзакцию</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            
+            <form id="edit-form">
+                <div class="modal-body">
+                    <p><strong>Дата:</strong> <span id="modal-date"></span></p>
+                    <p><strong>Сумма:</strong> <span id="modal-amount"></span></p>
+                    <p><strong>Описание:</strong> <span id="modal-referens"></span></p>
+                    
+                    <input type="hidden" id="modal-trans-id" name="trans_id">
+                    
+                    <div class="mb-3">
+                        <label for="modal-konto-bank" class="form-label">Банковский счет</label>
+                        <input type="text" class="form-control" id="modal-konto-bank" name="konto_bank">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="modal-konto-contra" class="form-label">Контра-счет (Konto)</label>
+                        <input type="text" class="form-control" id="modal-konto-contra" name="konto_contra">
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Закрыть</button>
+                    <button type="submit" class="btn btn-primary">Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var editModal = document.getElementById('editModal');
+    
+    // Событие 'show.bs.modal' срабатывает, когда модальное окно НАЧИНАЕТ открываться
+    editModal.addEventListener('show.bs.modal', function (event) {
+        
+        // Кнопка (или <tr>), которая вызвала модальное окно
+        var triggerElement = event.relatedTarget; 
+        
+        // Получаем данные из data-* атрибутов
+        var transId = triggerElement.getAttribute('data-trans-id');
+        var date = triggerElement.getAttribute('data-date');
+        var referens = triggerElement.getAttribute('data-referens');
+        var amount = triggerElement.getAttribute('data-amount');
+        var kontoBank = triggerElement.getAttribute('data-konto-bank');
+        var kontoContra = triggerElement.getAttribute('data-konto-contra');
+        
+        // Находим элементы в модальном окне
+        var modalTitle = editModal.querySelector('.modal-title');
+        var modalDate = editModal.querySelector('#modal-date');
+        var modalReferens = editModal.querySelector('#modal-referens');
+        var modalAmount = editModal.querySelector('#modal-amount');
+        var modalTransIdInput = editModal.querySelector('#modal-trans-id');
+        var modalKontoBankInput = editModal.querySelector('#modal-konto-bank');
+        var modalKontoContraInput = editModal.querySelector('#modal-konto-contra');
+        
+        // Заполняем элементы данными
+        modalTitle.textContent = 'Транзакция ID: ' + transId;
+        modalDate.textContent = date;
+        modalReferens.textContent = referens;
+        modalAmount.textContent = amount;
+        
+        modalTransIdInput.value = transId;
+        modalKontoBankInput.value = kontoBank;
+        modalKontoContraInput.value = kontoContra;
+    });
+
+    // Обработка отправки формы (пока только в консоли)
+    var editForm = document.getElementById('edit-form');
+    editForm.addEventListener('submit', function(event) {
+        event.preventDefault(); // Предотвращаем реальную отправку
+        
+        var transId = document.getElementById('modal-trans-id').value;
+        var kontoContra = document.getElementById('modal-konto-contra').value;
+
+        console.log("Нужно сохранить ID:", transId, "с новым счетом:", kontoContra);
+
+        // TODO: Здесь будет Fetch (AJAX) запрос к Flask для сохранения данных
+
+        // Закрываем окно (симулируем)
+        var modalInstance = bootstrap.Modal.getInstance(editModal);
+        modalInstance.hide();
+    });
+});
+</script>
+{% endblock %}
