@@ -11,7 +11,6 @@ class Company(db.Model):
     postkod = db.Column(db.String(20))
     ort = db.Column(db.String(50))
 
-    # Связь с транзакциями
     transactions = db.relationship('BankTransaction', back_populates='company', lazy=True)
 
 
@@ -19,22 +18,36 @@ class BankTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey('company.id'), nullable=False)
 
+    # Данные из CSV
     bokforingsdag = db.Column(db.Date, nullable=False)
     referens = db.Column(db.String(200))
-    belopp = db.Column(db.Float, nullable=False)  # Сумма (Insättning/Uttag)
+    belopp = db.Column(db.Float, nullable=False)
 
-    # Статус для бухгалтерии
-    status = db.Column(db.String(20), default='unprocessed')  # unprocessed, processed
-
-    # Бухгалтерские счета (по умолчанию)
-    # По вашей логике: 1930 (банк) и 1798/1799 (некатегоризированные)
-    konto_bank = db.Column(db.String(10), default='1930')
-    konto_contra = db.Column(db.String(10))  # Будет 1798 или 1799
+    # Статус
+    status = db.Column(db.String(20), default='unprocessed')  # unprocessed / processed
 
     company = db.relationship('Company', back_populates='transactions')
+
+    # Эта строка требует, чтобы класс 'Bilaga' существовал
     attachments = db.relationship('Bilaga', backref='transaction', lazy=True)
 
+    # Связь с бух. записями
+    entries = db.relationship('BookkeepingEntry', backref='bank_transaction', lazy=True, cascade="all, delete-orphan")
 
+
+# Таблица для двойной записи
+class BookkeepingEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    bank_transaction_id = db.Column(db.Integer, db.ForeignKey('bank_transaction.id'), nullable=False)
+
+    konto = db.Column(db.String(10), nullable=False)
+    debet = db.Column(db.Float, default=0.0)
+    kredit = db.Column(db.Float, default=0.0)
+
+
+#
+# --->>> ВОТ ИСПРАВЛЕНИЕ: Я ДОБАВИЛ ЭТОТ КЛАСС НАЗАД
+#
 class Bilaga(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     transaction_id = db.Column(db.Integer, db.ForeignKey('bank_transaction.id'), nullable=False)
