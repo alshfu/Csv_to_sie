@@ -6,6 +6,8 @@ from flask import Flask, render_template, request, redirect, url_for, flash, mak
 from models import db, Company, BankTransaction, BookkeepingEntry, Bilaga
 from datetime import datetime
 import math
+from bilaga_processor import save_bilaga_file
+from accounting_config import KONTOPLAN, get_contra_account
 
 # --- Настройка Flask (без изменений) ---
 basedir = os.path.abspath(os.path.dirname(__file__))
@@ -69,7 +71,6 @@ def create_tables():
         db.create_all()
 
 
-# --- Страница 1: Фирмы (без изменений) ---
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
@@ -95,15 +96,15 @@ def index():
 
 # --- Страница 2: Загрузка (без изменений) ---
 @app.route('/company/<int:company_id>', methods=['GET'])
-def upload_page(company_id):
+def upload_page(company_id):  # <-- ВОТ ПРОБЛЕМА
     company = Company.query.get_or_404(company_id)
-    # Показываем ВСЕ транзакции.
-    # Сортируем по статусу (unprocessed будут первыми) и дате.
+    # Эта страница теперь показывает ТОЛЬКО НЕОБРАБОТАННЫЕ
     transactions = BankTransaction.query.filter_by(
-        company_id=company_id
-    ).order_by(BankTransaction.status.desc(), BankTransaction.bokforingsdag.desc()).all()
+        company_id=company_id,
+        status='unprocessed'
+    ).order_by(BankTransaction.bokforingsdag.desc()).all()
+    return render_template('transactions.html', company=company, transactions=transactions, kontoplan=KONTOPLAN)
 
-    return render_template('transactions.html', company=company, transactions=transactions)
 
 
 @app.route('/company/<int:company_id>/upload_csv', methods=['POST'])
@@ -166,8 +167,7 @@ def upload_csv(company_id):
         db.session.rollback()
         flash(f"Fel vid bearbetning av CSV: {e}", "danger")
 
-    return redirect(url_for('upload_page', company_id=company_id))
-
+    return redirect(url_for('bokforing_page', company_id=company_id))  # <-- Обновлено
 
 # --- API для модального окна (без изменений) ---
 @app.route('/get_entries/<int:trans_id>', methods=['GET'])
@@ -336,7 +336,6 @@ def get_bilagor(trans_id):
 
 
 @app.route('/upload_bilaga/<int:trans_id>', methods=['POST'])
-@app.route('/upload_bilaga/<int:trans_id>', methods=['POST'])
 def upload_bilaga(trans_id):
     """Загружает новый файл bilaga для транзакции."""
     try:
@@ -394,6 +393,17 @@ def upload_bilaga(trans_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/company/<int:company_id>/verifikationer', methods=['GET'])
+def verifikationer_page(company_id):
+    company = Company.query.get_or_404(company_id)
+    # Эта страница показывает ТОЛЬКО ОБРАБОТАННЫЕ
+    transactions = BankTransaction.query.filter_by(
+        company_id=company_id,
+        status='processed'  # <-- ВАЖНОЕ ИЗМЕНЕНИЕ
+    ).order_by(BankTransaction.bokforingsdag.desc()).all()
+
+    return render_template('verifikationer.html', company=company, transactions=transactions)
+
 @app.route('/delete_bilaga/<int:bilaga_id>', methods=['DELETE'])
 def delete_bilaga(bilaga_id):
     try:
@@ -418,6 +428,18 @@ def delete_bilaga(bilaga_id):
         db.session.rollback()
         print(f"!!! ОШИБКА в delete_bilaga: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/company/<int:company_id>', methods=['GET'])
+def bokforing_page(company_id):  # <-- ВОТ РЕШЕНИЕ
+    company = Company.query.get_or_404(company_id)
+    # Эта страница теперь показывает ТОЛЬКО НЕОБРАБОТАННЫЕ
+    transactions = BankTransaction.query.filter_by(
+        company_id=company_id,
+        status='unprocessed'
+    ).order_by(BankTransaction.bokforingsdag.desc()).all()
+
+    return render_template('transactions.html', company=company, transactions=transactions)
 
 if __name__ == '__main__':
     app.run(debug=True)

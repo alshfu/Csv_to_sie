@@ -1,9 +1,14 @@
 {% extends 'base.html' %}
-{% block title %}Transaktioner för {{ company.name }}{% endblock %}
+{% block title %}Bokföring - {{ company.name }}{% endblock %}
 
 {% block content %}
-    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm mb-3">&larr; Tillbaka till företag</a>
-    <h2>Transaktioner för: {{ company.name }}</h2>
+    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm mb-3">&larr; Tillbaka till
+        Företagslistan</a>
+    <h2>Bokföring: {{ company.name }}</h2>
+
+    <a href="{{ url_for('verifikationer_page', company_id=company.id) }}" class="btn btn-info btn-sm mb-3">
+        Visa bokförda verifikationer (Arkiv) &rarr;
+    </a>
 
     <div class="card bg-light my-4">
         <div class="card-body">
@@ -18,41 +23,47 @@
         </div>
     </div>
 
-    <h3>Transaktioner</h3>
+    <h3>Obearbetade transaktioner</h3>
+
     <div class="table-responsive">
         <table class="table table-hover">
             <thead>
             <tr>
-                <th>Datum</th>
-                <th>Referens</th>
-                <th>Belopp</th>
-                <th>Status</th>
+                <th data-sort-index="0" data-sort-type="date" style="cursor: pointer;">Datum</th>
+                <th data-sort-index="1" data-sort-type="text" style="cursor: pointer;">Referens</th>
+                <th data-sort-index="2" data-sort-type="number" style="cursor: pointer;">Belopp</th>
+                <th data-sort-index="3" data-sort-type="text" style="cursor: pointer;">Konton</th>
+                <th data-sort-index="4" data-sort-type="text" style="cursor: pointer;">Status</th>
                 <th>Bilaga</th>
             </tr>
             </thead>
-            <tbody>
+            <tbody id="transactions-table-body">
             {% for trans in transactions %}
                 <tr id="trans-row-{{ trans.id }}"
                     class="transaction-row"
-
                     style="cursor: pointer;"
                     data-bs-toggle="modal"
                     data-bs-target="#bokforingModal"
-
                     data-trans-id="{{ trans.id }}"
                     data-referens="{{ trans.referens }}"
                     data-amount="{{ '%.2f'|format(trans.belopp) }}"
-                    data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}"
-                >
+                    data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}">
+
                     <td>{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
                     <td>{{ trans.referens }}</td>
                     <td>{{ "%.2f"|format(trans.belopp) }}</td>
                     <td>
-                        {% if trans.status == 'processed' %}
-                            <span class="badge bg-success">{{ trans.status }}</span>
-                        {% else %}
-                            <span class="badge bg-warning text-dark">{{ trans.status }}</span>
-                        {% endif %}
+                        {% for entry in trans.entries %}
+                            {% if entry.konto != '1930' %}
+                                <span class="badge bg-light text-dark" style="border: 1px solid #ccc;"
+                                      title="{{ entry.konto }}">
+                                    {{ kontoplan.get(entry.konto, entry.konto) }}
+                                </span>
+                            {% endif %}
+                        {% endfor %}
+                    </td>
+                    <td>
+                        <span class="badge bg-warning text-dark">{{ trans.status }}</span>
                     </td>
                     <td>
                         {% if trans.attachments|length > 0 %}
@@ -73,9 +84,8 @@
         <button type="submit" class="btn btn-success">Generera SIE-fil</button>
     </form>
 
-
     <div class="modal fade" id="bokforingModal" tabindex="-1" aria-labelledby="bokforingModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-xl">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="bokforingModalLabel">Bokför transaktion</h5>
@@ -92,18 +102,33 @@
                     <hr>
 
                     <h6>Bilagor</h6>
-                    <ul id="bilaga-list" class="list-group list-group-flush mb-3">
-                        <li class="list-group-item" id="bilaga-loading-placeholder" style="display: none;">Laddar...
-                        </li>
-                    </ul>
-                    <form id="bilaga-form" class="mb-3">
-                        <div class="input-group">
-                            <input type="file" class="form-control" name="bilaga_file" id="bilaga_file_input" required>
-                            <button class="btn btn-outline-secondary" type="submit" id="bilaga-upload-btn">Ladda upp
-                                bilaga
-                            </button>
+                    <div class="row">
+                        <div class="col-md-5">
+                            <ul id="bilaga-list" class="list-group list-group-flush mb-3"
+                                style="max-height: 350px; overflow-y: auto;">
+                                <li class="list-group-item" id="bilaga-loading-placeholder" style="display: none;">
+                                    Laddar...
+                                </li>
+                            </ul>
+                            <form id="bilaga-form" class="mb-3">
+                                <div class="input-group">
+                                    <input type="file" class="form-control" name="bilaga_file" id="bilaga_file_input"
+                                           required>
+                                    <button class="btn btn-outline-secondary" type="submit" id="bilaga-upload-btn">Ladda
+                                        upp
+                                    </button>
+                                </div>
+                            </form>
                         </div>
-                    </form>
+                        <div class="col-md-7">
+                            <embed id="bilaga-preview" src="" type="application/pdf" width="100%" height="400px"
+                                   style="border: 1px solid #ccc; display: none;">
+                            <div id="bilaga-preview-placeholder" class="text-center text-muted"
+                                 style="border: 1px dashed #ccc; height: 400px; display: flex; align-items: center; justify-content: center;">
+                                Klicka på en fil i listan för att förhandsgranska
+                            </div>
+                        </div>
+                    </div>
 
                     <hr>
 
@@ -124,7 +149,6 @@
 
                     <form id="bokforing-form">
                         <input type="hidden" id="modal-trans-id">
-
                         <table class="table table-sm">
                             <thead>
                             <tr>
@@ -137,8 +161,9 @@
                             <tbody id="entries-container">
                             <template id="entry-row-template">
                                 <tr>
-                                    <td><input type="text" class="form-control form-control-sm konto-input"
-                                               placeholder="1930"></td>
+                                    <td>
+                                        <input type="text" class="konto-input" placeholder="Välj konto...">
+                                    </td>
                                     <td><input type="number" step="0.01"
                                                class="form-control form-control-sm debet-input" placeholder="0.00"></td>
                                     <td><input type="number" step="0.01"
@@ -163,7 +188,6 @@
                             </tr>
                             </tfoot>
                         </table>
-
                         <button type="button" class="btn btn-outline-primary btn-sm" id="add-row-btn">Lägg till rad
                         </button>
                     </form>
@@ -180,5 +204,10 @@
 
 
 {% block scripts %}
-    <script src="{{ url_for('static', filename='js/transactions.js') }}"></script>
+    <script>
+        const KONTOPLAN = {{ kontoplan|tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='js/mainTable.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/kontoAutocomplete.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modalHandler.js') }}"></script>
 {% endblock %}
