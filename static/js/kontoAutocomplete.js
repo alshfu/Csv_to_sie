@@ -1,13 +1,11 @@
 document.addEventListener('DOMContentLoaded', function() {
 
-    // Убедимся, что KONTOPLAN существует (теперь он точно должен быть)
     if (typeof KONTOPLAN === 'undefined') {
-        console.error("KONTOPLAN не найден. Убедитесь, что он определен в HTML.");
+        console.error("KONTOPLAN är inte laddad.");
         return;
     }
 
-    // 1. Форматируем KONTOPLAN для Tom-Select
-    // (Из {'1613': 'Lön'} в [{value: '1613', text: '1613 - Lön'}])
+    // 1. Formatera KONTOPLAN
     const kontoOptions = Object.keys(KONTOPLAN).map(key => {
         return {
             value: key,
@@ -15,54 +13,56 @@ document.addEventListener('DOMContentLoaded', function() {
         };
     });
 
-    // 2. Создаем общие настройки Tom-Select
-    const tomSelectSettings = {
-        options: kontoOptions,
-        searchField: ['text', 'value'], // Искать по номеру и по имени
-        create: false, // Не разрешаем создавать новые счета
-        placeholder: 'Välj eller sök konto...',
-        // Важно: Tom-Select должен работать внутри Bootstrap Modal
-        dropdownParent: 'body',
-        render: {
-            // Улучшаем рендеринг, чтобы в списке было видно и номер, и имя
-            option: function(item, escape) {
-                return `<div>
-                            <strong>${escape(item.value)}</strong>
-                            <span class="text-muted ms-2">${escape(item.text.split(' - ')[1])}</span>
-                        </div>`;
-            },
-            item: function(item, escape) {
-                // Как будет выглядеть выбранный элемент
-                return `<div>${escape(item.text)}</div>`;
+    // 2. Skapa en *mall* för inställningar
+    const getTomSelectSettings = (parentModalId) => {
+        return {
+            options: kontoOptions,
+            searchField: ['text', 'value'],
+            create: false,
+            placeholder: 'Välj eller sök konto...',
+            
+            //
+            // ===============================================================
+            //  HÄR ÄR FIXEN (Del 2): Dynamisk förälder
+            // ===============================================================
+            //
+            dropdownParent: parentModalId ? document.querySelector(parentModalId) : 'body',
+            
+            render: {
+                option: function(item, escape) {
+                    return `<div>
+                                <strong>${escape(item.value)}</strong>
+                                <span class="text-muted ms-2">${escape(item.text.split(' - ')[1])}</span>
+                            </div>`;
+                },
+                item: function(item, escape) {
+                    return `<div>${escape(item.text)}</div>`;
+                }
             }
-        }
+        };
     };
 
-    // 3. Создаем глобальную функцию-инициализатор
-    // Мы вешаем ее на 'window', чтобы modalHandler.js мог ее вызвать
-    window.initializeKontoAutocomplete = (element) => {
+    // 3. Skapa global funktion som tar emot FÖRÄLDERN
+    window.initializeKontoAutocomplete = (element, parentModalId) => {
         if (element.tomselect) {
-            // Уже инициализирован, ничего не делаем
-            return;
-        } else {
-            // Создаем новый
-            new TomSelect(element, tomSelectSettings);
+            return; // Redan initierad
         }
+        
+        const settings = getTomSelectSettings(parentModalId);
+        new TomSelect(element, settings);
     };
 
-    // 4. Находим модальное окно и слушаем его открытие
+    // 4. Initiera för huvud-modalen (Bokföring)
     const bokforingModal = document.getElementById('bokforingModal');
     if (bokforingModal) {
         bokforingModal.addEventListener('show.bs.modal', function() {
-            // Находим ВСЕ .konto-input, которые УЖЕ существуют (загружены с сервера)
-            // и инициализируем их
             const existingInputs = bokforingModal.querySelectorAll('.konto-input:not(.tomselected)');
             existingInputs.forEach(input => {
                 if (window.initializeKontoAutocomplete) {
-                    window.initializeKontoAutocomplete(input);
+                    // Skicka med ID:t för modalen
+                    window.initializeKontoAutocomplete(input, '#bokforingModal');
                 }
             });
         });
     }
-
-}); // <-- Вот закрывающая скобка 'DOMContentLoaded'
+});

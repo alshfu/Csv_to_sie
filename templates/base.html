@@ -17,8 +17,16 @@
             font-size: 0.875rem !important;
             min-height: calc(1.5em + 0.5rem + 2px) !important;
         }
+        
+        /*
+          =============================================
+           HÄR ÄR FIXEN (Del 1)
+          =============================================
+        */
         .ts-dropdown {
             font-size: 0.875rem;
+            /* Tvingar dropdown att ligga OVANFÖR modalen (1055) */
+            z-index: 1060 !important; 
         }
     </style>
 </head>

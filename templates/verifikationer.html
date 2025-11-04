@@ -83,19 +83,13 @@
 
                 <hr>
 
-                <h6>Bilagor</h6>
+                <h6>Kopplade Bilagor</h6>
                 <div class="row">
                     <div class="col-md-5">
                         <ul id="bilaga-list" class="list-group list-group-flush mb-3" style="max-height: 350px; overflow-y: auto;">
-                            <li class="list-group-item" id="bilaga-loading-placeholder" style="display: none;">Laddar...</li>
-                        </ul>
-                        <form id="bilaga-form" class="mb-3">
-                            <div class="input-group">
-                                <input type="file" class="form-control" name="bilaga_file" id="bilaga_file_input" required>
-                                <button class="btn btn-outline-secondary" type="submit" id="bilaga-upload-btn">Ladda upp</button>
-                            </div>
-                        </form>
-                    </div>
+                            </ul>
+                        </div>
+
                     <div class="col-md-7">
                         <embed id="bilaga-preview" src="" type="application/pdf" width="100%" height="400px" style="border: 1px solid #ccc; display: none;">
                         <div id="bilaga-preview-placeholder" class="text-center text-muted" style="border: 1px dashed #ccc; height: 400px; display: flex; align-items: center; justify-content: center;">
@@ -130,8 +124,7 @@
                             <template id="entry-row-template">
                                 <tr>
                                     <td>
-                                        <input type="text" class="form-control form-control-sm konto-input" placeholder="1930">
-                                        <small class="text-muted konto-name"></small>
+                                        <input type="text" class="konto-input" placeholder="Välj konto...">
                                     </td>
                                     <td><input type="number" step="0.01" class="form-control form-control-sm debet-input" placeholder="0.00"></td>
                                     <td><input type="number" step="0.01" class="form-control form-control-sm kredit-input" placeholder="0.00"></td>
@@ -163,13 +156,52 @@
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="bilagaModal" tabindex="-1" aria-labelledby="bilagaModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="bilagaModalLabel">Redigera info för Bilaga</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="bilaga-metadata-form">
+                    <input type="hidden" id="metadata-bilaga-id">
+                    <div class="mb-3">
+                        <label for="metadata-bilaga-date" class="form-label">Fakturadatum</label>
+                        <input type="date" class="form-control" id="metadata-bilaga-date">
+                    </div>
+                    <div class="mb-3">
+                        <label for="metadata-total-amount" class="form-label">Totalbelopp (Brutto)</label>
+                        <input type="number" step="0.01" class="form-control" id="metadata-total-amount" placeholder="0.00">
+                    </div>
+                    <div class="mb-3">
+                        <label for="metadata-moms-amount" class="form-label">Momsbelopp</label>
+                        <input type="number" step="0.01" class="form-control" id="metadata-moms-amount" placeholder="0.00">
+                    </div>
+                    <div class="mb-3">
+                        <label for="metadata-suggested-konto" class="form-label">Föreslaget Konto (Kostnad/Intäkt)</label>
+                        <input type="text" id="metadata-suggested-konto" placeholder="Välj konto...">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
+                <button type="button" class="btn btn-primary" id="save-metadata-btn">Spara info</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 
 {% block scripts %}
 <script>
     const KONTOPLAN = {{ kontoplan|tojson }};
+    const ASSOCIATION_MAP = {{ association_map|tojson }};
+    const COMPANY_ID = {{ company.id }};
 </script>
 <script src="{{ url_for('static', filename='js/mainTable.js') }}"></script>
+<script src="{{ url_for('static', filename='js/kontoAutocomplete.js') }}"></script>
 <script src="{{ url_for('static', filename='js/modalHandler.js') }}"></script>
 {% endblock %}

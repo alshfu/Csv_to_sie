@@ -1,4 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
 
 db = SQLAlchemy()
 
@@ -12,44 +13,45 @@ class Company(db.Model):
     ort = db.Column(db.String(50))
 
     transactions = db.relationship('BankTransaction', back_populates='company', lazy=True)
+    bilagor = db.relationship('Bilaga', back_populates='company', lazy=True)
 
 
 class BankTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey('company.id'), nullable=False)
 
-    # Данные из CSV
     bokforingsdag = db.Column(db.Date, nullable=False)
     referens = db.Column(db.String(200))
     belopp = db.Column(db.Float, nullable=False)
-
-    # Статус
-    status = db.Column(db.String(20), default='unprocessed')  # unprocessed / processed
+    status = db.Column(db.String(20), default='unprocessed')
 
     company = db.relationship('Company', back_populates='transactions')
-
-    # Эта строка требует, чтобы класс 'Bilaga' существовал
-    attachments = db.relationship('Bilaga', backref='transaction', lazy=True)
-
-    # Связь с бух. записями
     entries = db.relationship('BookkeepingEntry', backref='bank_transaction', lazy=True, cascade="all, delete-orphan")
+    attachments = db.relationship('Bilaga', back_populates='transaction', lazy=True)
 
 
-# Таблица для двойной записи
 class BookkeepingEntry(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     bank_transaction_id = db.Column(db.Integer, db.ForeignKey('bank_transaction.id'), nullable=False)
-
     konto = db.Column(db.String(10), nullable=False)
     debet = db.Column(db.Float, default=0.0)
     kredit = db.Column(db.Float, default=0.0)
 
 
-#
-# --->>> ВОТ ИСПРАВЛЕНИЕ: Я ДОБАВИЛ ЭТОТ КЛАСС НАЗАД
-#
 class Bilaga(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    transaction_id = db.Column(db.Integer, db.ForeignKey('bank_transaction.id'), nullable=False)
+    company_id = db.Column(db.Integer, db.ForeignKey('company.id'), nullable=False)
+    bank_transaction_id = db.Column(db.Integer, db.ForeignKey('bank_transaction.id'), nullable=True)
+
     filepath = db.Column(db.String(300), nullable=False)
     filename = db.Column(db.String(200))
+    status = db.Column(db.String(20), default='unassigned')
+
+    bilaga_date = db.Column(db.Date, nullable=True)
+    brutto_amount = db.Column(db.Float, nullable=True)
+    netto_amount = db.Column(db.Float, nullable=True)
+    moms_amount = db.Column(db.Float, nullable=True)
+    suggested_konto = db.Column(db.String(10), nullable=True)
+
+    company = db.relationship('Company', back_populates='bilagor')
+    transaction = db.relationship('BankTransaction', back_populates='attachments')
