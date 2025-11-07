@@ -4,17 +4,19 @@ document.addEventListener('DOMContentLoaded', function () {
         return; // Vi är inte på en sida med ett modal-fönster, avsluta.
     }
 
-    // Element som finns på BÅDA sidorna
+    // Element i modal-fönstret
     const entriesContainer = document.getElementById('entries-container');
     const rowTemplate = document.getElementById('entry-row-template');
     const addRowBtn = document.getElementById('add-row-btn');
     const saveBtn = document.getElementById('save-entries-btn');
     const modalAlert = document.getElementById('modal-alert');
     const momsBtnGroup = document.getElementById('moms-btn-group');
-    const attachedBilagaList = document.getElementById('bilaga-list');
 
-    // Element som BARA finns på transactions.html (Inkorgen)
+    // Bilaga-element (inuti modalen)
+    const attachedBilagaList = document.getElementById('bilaga-list');
     const linkableBilagaList = document.getElementById('link-bilaga-list');
+    const bilagaPreview = document.getElementById('bilaga-preview');
+    const bilagaPreviewPlaceholder = document.getElementById('bilaga-preview-placeholder');
 
     let currentTransId = null;
     let activeRowForMoms = null;
@@ -35,29 +37,12 @@ document.addEventListener('DOMContentLoaded', function () {
         modalAlert.style.display = 'none';
         entriesContainer.innerHTML = '';
         disableMomsButtons();
+        attachedBilagaList.innerHTML = '<li>Laddar...</li>';
+        linkableBilagaList.innerHTML = '<li>Laddar...</li>';
 
-        // Kontrollera om listorna finns innan vi återställer dem
-        if (attachedBilagaList) {
-            attachedBilagaList.innerHTML = '<li>Laddar...</li>';
-        }
-        if (linkableBilagaList) {
-            linkableBilagaList.innerHTML = '<li>Laddar...</li>';
-        }
-
-        //
-        // ===============================================================
-        //  HÄR ÄR FIXEN (Del 1):
-        //  Hämta förhandsgranskaren lokalt och KONTROLLERA om den finns.
-        // ===============================================================
-        //
-        const bilagaPreview = document.getElementById('bilaga-preview');
-        const bilagaPreviewPlaceholder = document.getElementById('bilaga-preview-placeholder');
-
-        if (bilagaPreview && bilagaPreviewPlaceholder) {
-            bilagaPreview.setAttribute('src', 'about:blank'); // <- Detta var rad 43
-            bilagaPreview.style.display = 'none';
-            bilagaPreviewPlaceholder.style.display = 'flex';
-        }
+        bilagaPreview.setAttribute('src', 'about:blank');
+        bilagaPreview.style.display = 'none';
+        bilagaPreviewPlaceholder.style.display = 'flex';
 
         // Ladda data
         try {
@@ -78,116 +63,122 @@ document.addEventListener('DOMContentLoaded', function () {
             const bilagor = await bilagorResponse.json();
             updateAttachedBilagaList(bilagor);
 
-            updateLinkableBilagaList(); // Denna funktion har en egen kontroll
+            updateLinkableBilagaList();
 
         } catch (error) {
             showModalError(error.message);
         }
     });
 
-    // 2. Händelse: Koppla Bilaga från Inkorg (Körs BARA om listan finns)
-    if (linkableBilagaList) {
-        linkableBilagaList.addEventListener('click', async function(e) {
-            if (!e.target.classList.contains('link-bilaga-btn')) return;
+    //
+    // ===============================================================
+    //  ИСПРАВЛЕННАЯ ЛОГИКА: "Koppla" (Привязка)
+    // ===============================================================
+    //
+    linkableBilagaList.addEventListener('click', async function(e) {
+        if (!e.target.classList.contains('link-bilaga-btn')) return;
 
-            const bilagaId = e.target.dataset.bilagaId;
-            const filename = e.target.dataset.filename;
-            const url = e.target.dataset.url;
+        const bilagaId = e.target.dataset.bilagaId;
+        const filename = e.target.dataset.filename;
+        const url = e.target.dataset.url;
 
-            // --- 1. Auto-kontering ---
-            const editBtn = document.querySelector(`.edit-metadata-btn[data-bilaga-id="${bilagaId}"]`);
-            if (editBtn) {
-                const netto = parseFloat(editBtn.dataset.nettoAmount) || 0;
-                const moms = parseFloat(editBtn.dataset.momsAmount) || 0;
-                const kontoToUse = editBtn.dataset.suggestedKonto || null;
+        // --- 1. АВТО-ЗАПОЛНЕНИЕ ---
 
-                const isDebet = currentBankAmount < 0;
-                const isKredit = currentBankAmount > 0;
+        // Находим кнопку "Redigera info" в главном инбоксе,
+        // чтобы прочитать ВСЕ сохраненные data-атрибуты
+        const editBtn = document.querySelector(`.edit-metadata-btn[data-bilaga-id="${bilagaId}"]`);
 
-                // Rensa standardrader (1798/1799)
-                entriesContainer.querySelectorAll('tr').forEach(row => {
-                    const konto = row.querySelector('.konto-input').value;
-                    if (konto === '1798' || konto === '1799') {
-                        const tomselectInstance = row.querySelector('.konto-input').tomselect;
-                        if(tomselectInstance) tomselectInstance.destroy();
-                        row.remove();
-                    }
-                });
+        if (editBtn) {
+            // Читаем распознанные (или вручную введенные) данные
+            const netto = parseFloat(editBtn.dataset.nettoAmount) || 0;
+            const moms = parseFloat(editBtn.dataset.momsAmount) || 0;
 
-                // Skapa nya, korrekta rader
-                if (isDebet && (netto > 0 || moms > 0)) {
-                    createEntryRow(kontoToUse || '1799', netto.toFixed(2), 0);
-                    if (moms > 0) createEntryRow('2641', moms.toFixed(2), 0);
-                } else if (isKredit && (netto > 0 || moms > 0)) {
-                    createEntryRow(kontoToUse || '1798', 0, netto.toFixed(2));
-                    if (moms > 0) createEntryRow('2611', 0, moms.toFixed(2));
-                } else {
-                     const defaultKonto = isDebet ? '1799' : '1798';
-                     const totalBankAmount = Math.abs(currentBankAmount);
-                     createEntryRow(
-                        kontoToUse || defaultKonto,
-                        isDebet ? totalBankAmount.toFixed(2) : 0,
-                        isKredit ? totalBankAmount.toFixed(2) : 0
-                    );
+            //
+            // ===> ВОТ ИСПРАВЛЕНИЕ: Мы берем НОМЕР СЧЕТА прямо из data-атрибута <===
+            //
+            const kontoToUse = editBtn.dataset.suggestedKonto || null; // (напр., '2440' или '5611')
+
+            const isDebet = currentBankAmount < 0; // Исходящий -> Debet
+            const isKredit = currentBankAmount > 0; // Входящий -> Kredit
+
+            // 2. Очищаем строки по умолчанию (1798/1799)
+            entriesContainer.querySelectorAll('tr').forEach(row => {
+                const konto = row.querySelector('.konto-input').value;
+                if (konto === '1798' || konto === '1799') {
+                    const tomselectInstance = row.querySelector('.konto-input').tomselect;
+                    if(tomselectInstance) tomselectInstance.destroy();
+                    row.remove();
                 }
-                calculateTotals();
+            });
+
+            // 3. Создаем новые, правильные строки
+
+            // Если у нас есть суммы из квитанции, используем их
+            if (netto > 0 || moms > 0) {
+                if (isDebet) { // Исходящий (покупка)
+                    createEntryRow(kontoToUse || '1799', netto.toFixed(2), 0);
+                    if (moms > 0) createEntryRow('2641', moms.toFixed(2), 0); // Ingående moms
+
+                } else { // Входящий (продажа)
+                    createEntryRow(kontoToUse || '1798', 0, netto.toFixed(2));
+                    if (moms > 0) createEntryRow('2611', 0, moms.toFixed(2)); // Utgående moms
+                }
+            } else {
+                // Если суммы не распознаны (0.00), мы не можем их разделить.
+                // Мы просто используем 'suggested_konto' для ВСЕЙ суммы.
+                const defaultKonto = isDebet ? '1799' : '1798';
+                const totalBankAmount = Math.abs(currentBankAmount);
+
+                createEntryRow(
+                    kontoToUse || defaultKonto,
+                    isDebet ? totalBankAmount.toFixed(2) : 0,
+                    isKredit ? totalBankAmount.toFixed(2) : 0
+                );
             }
-            // --- Slut Auto-kontering ---
 
-            // 2. Koppla bilagan
-            try {
-                const response = await fetch(`/link_bilaga`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        bilaga_id: bilagaId,
-                        transaction_id: currentTransId
-                    })
-                });
-                if (!response.ok) throw new Error('Kunde inte koppla.');
+            calculateTotals();
+        }
+        // --- КОНЕЦ АВТО-ЗАПОЛНЕНИЯ ---
 
-                e.target.closest('li').remove();
-                document.getElementById(`bilaga-card-${bilagaId}`)?.remove();
-                appendBilagaToList(filename, url, bilagaId);
+        // 4. Привязываем квитанцию
+        try {
+            const response = await fetch(`/link_bilaga`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    bilaga_id: bilagaId,
+                    transaction_id: currentTransId
+                })
+            });
+            if (!response.ok) throw new Error('Kunde inte koppla.');
 
-            } catch (error) {
-                showModalError(error.message);
-            }
-        });
-    }
+            e.target.closest('li').remove();
+            document.getElementById(`bilaga-card-${bilagaId}`)?.remove();
+            appendBilagaToList(filename, url, bilagaId);
+
+        } catch (error) {
+            showModalError(error.message);
+        }
+    });
 
     // 3. Händelse: Lossa Bilaga / Förhandsgranska
-    if (attachedBilagaList) {
-        attachedBilagaList.addEventListener('click', async function(e) {
-            // Förhandsgranskning
-            if (e.target.classList.contains('bilaga-preview-link')) {
-                e.preventDefault();
+    attachedBilagaList.addEventListener('click', async function(e) {
+        // Förhandsgranskning
+        if (e.target.classList.contains('bilaga-preview-link')) {
+            e.preventDefault();
+            const url = e.target.dataset.url;
+            bilagaPreview.setAttribute('src', url);
+            bilagaPreview.style.display = 'block';
+            bilagaPreviewPlaceholder.style.display = 'none';
+            attachedBilagaList.querySelectorAll('a').forEach(a => a.classList.remove('fw-bold'));
+            e.target.classList.add('fw-bold');
+        }
 
-                //
-                // ===============================================================
-                //  HÄR ÄR FIXEN (Del 2):
-                //  Hämta och kontrollera elementen IGEN här inne.
-                // ===============================================================
-                //
-                const bilagaPreview = document.getElementById('bilaga-preview');
-                const bilagaPreviewPlaceholder = document.getElementById('bilaga-preview-placeholder');
-
-                if (bilagaPreview && bilagaPreviewPlaceholder) {
-                    const url = e.target.dataset.url;
-                    bilagaPreview.setAttribute('src', url);
-                    bilagaPreview.style.display = 'block';
-                    bilagaPreviewPlaceholder.style.display = 'none';
-                    attachedBilagaList.querySelectorAll('a').forEach(a => a.classList.remove('fw-bold'));
-                    e.target.classList.add('fw-bold');
-                }
-            }
-
-            // Lossa (TODO)
-            if (e.target.classList.contains('unlink-bilaga-btn')) {
-                alert('Funktionen "Koppla från" är inte implementerad än.');
-            }
-        });
-    }
+        // Lossa (TODO)
+        if (e.target.classList.contains('unlink-bilaga-btn')) {
+            alert('Funktionen "Koppla från" är inte implementerad än.');
+        }
+    });
 
     // 4. Knappen: Lägg till rad
     addRowBtn.addEventListener('click', () => createEntryRow('', '', ''));
@@ -223,7 +214,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             const processedRow = document.getElementById(`trans-row-${currentTransId}`);
             if (processedRow) {
-                // Kolla om vi är på Bokföring-sidan (där inkorgen finns)
+                // Kolla om vi är på Bokföring-sidan
                 if (document.getElementById('multi-bilaga-form')) {
                     // Vi är på 'transactions.html', ta bort raden
                     processedRow.style.transition = 'opacity 0.5s ease';
@@ -323,10 +314,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
         if (window.initializeKontoAutocomplete) {
             setTimeout(() => {
-                // Skicka med modal-fönstrets ID
-                const tomselect = window.initializeKontoAutocomplete(kontoInput, '#bokforingModal');
+                const tomselect = window.initializeKontoAutocomplete(kontoInput);
                 if (tomselect) {
                     tomselect.on('change', calculateTotals);
+                    // Om det är bankkontot, lås det
                     if (konto === '1930') {
                         tomselect.lock();
                     }
@@ -338,7 +329,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateAttachedBilagaList(bilagor) {
-        if (!attachedBilagaList) return; // Kontrollera om elementet finns
         attachedBilagaList.innerHTML = '';
         if (bilagor.length === 0) {
             attachedBilagaList.innerHTML = '<li class="list-group-item text-muted" id="no-attached-bilaga-item"><i>Inga bilagor kopplade.</i></li>';
@@ -351,7 +341,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function appendBilagaToList(filename, url, id) {
-        if (!attachedBilagaList) return; // Kontrollera om elementet finns
         document.getElementById('no-attached-bilaga-item')?.remove();
         const li = document.createElement('li');
         li.className = 'list-group-item d-flex justify-content-between align-items-center';
@@ -364,9 +353,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function updateLinkableBilagaList() {
-        if (!linkableBilagaList) return; // Kontrollera om elementet finns
-
         linkableBilagaList.innerHTML = '';
+        // Hitta korten från huvud-DOM:en
         const unassignedCards = document.querySelectorAll('#unassigned-bilagor-list .card');
 
         if (unassignedCards.length === 0) {
@@ -384,8 +372,9 @@ document.addEventListener('DOMContentLoaded', function () {
             const url = link.dataset.url;
 
             const total = editBtn.dataset.bruttoAmount;
+            // Använd 'suggestedKonto' för att hämta namnet
             const kontoNum = editBtn.dataset.suggestedKonto;
-            const typ = KONTOPLAN[kontoNum] || '';
+            const typ = KONTOPLAN[kontoNum] || ''; // Hämta namn från KONTOPLAN
 
             let displayText = filename;
             if (typ && total) {
@@ -478,18 +467,19 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     function getMomsKonto(rate, isDebet) {
-        if (isDebet) { // Ingående moms (Köp)
+        if (isDebet) { // Ingående moms (покупка)
             if (rate === 25) return '2641';
             if (rate === 12) return '2642';
             if (rate === 6) return '2643';
-        } else { // Utgående moms (Sälj)
+        } else { // Utgående moms (продажа)
             if (rate === 25) return '2611';
             if (rate === 12) return '2612';
             if (rate === 6) return '2613';
         }
-        return '2641'; // Standard
+        return '2641'; // По умолчанию
     }
 
+    // Ищет номер счета по имени (напр., "Drivmedel" -> "5611")
     function findKontoByValue(valueToFind) {
         if (!valueToFind || typeof KONTOPLAN === 'undefined') return null;
         const lowerValue = valueToFind.toLowerCase();
@@ -501,9 +491,11 @@ document.addEventListener('DOMContentLoaded', function () {
         return null;
     }
 
+    // Ищет номер счета по ключу (напр., "drivmedel" -> "5611")
     function findKontoByKey(keyToFind) {
          if (!keyToFind || typeof ASSOCIATION_MAP === 'undefined') return null;
          const lowerKey = keyToFind.toLowerCase();
+         // KONTOPLAN и ASSOCIATION_MAP определяются в <script> в HTML
          if (ASSOCIATION_MAP[lowerKey]) {
             return ASSOCIATION_MAP[lowerKey];
          }

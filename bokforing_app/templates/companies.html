@@ -12,7 +12,7 @@
 
             <div class="list-group">
                 {% for company in companies %}
-                    <a href="{{ url_for('bokforing_page', company_id=company.id) }}"
+                    <a href="{{ url_for('main.bokforing_page', company_id=company.id) }}"
                        class="list-group-item list-group-item-action">
                         <div class="d-flex w-100 justify-content-between">
                             <h5 class="mb-1">{{ company.name }}</h5>
@@ -41,7 +41,7 @@ EKBACKEN 3 A
 
             <div class="card bg-light">
                 <div class="card-body">
-                    <form action="{{ url_for('index') }}" method="POST" id="company-form">
+                    <form action="{{ url_for('main.index') }}" method="POST" id="company-form">
                         <div class="mb-3">
                             <label for="name" class="form-label">Företags namn</label>
                             <input type="text" class="form-control" id="name" name="name" required>

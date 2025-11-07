@@ -2,18 +2,14 @@
 {% block title %}Bokföring - {{ company.name }}{% endblock %}
 
 {% block content %}
-    <a href="{{ url_for('index') }}" class="btn btn-outline-secondary btn-sm mb-3">&larr; Tillbaka till
-        Företagslistan</a>
+
     <h2>Bokföring: {{ company.name }}</h2>
 
-    <a href="{{ url_for('verifikationer_page', company_id=company.id) }}" class="btn btn-info btn-sm mb-3">
-        Visa bokförda verifikationer (Arkiv) &rarr;
-    </a>
 
     <div class="card bg-light my-4">
         <div class="card-body">
             <h5 class="card-title">Ladda upp ny CSV (Banktransaktioner)</h5>
-            <form action="{{ url_for('upload_csv', company_id=company.id) }}" method="POST"
+            <form action="{{ url_for('api.upload_csv', company_id=company.id) }}" method="POST"
                   enctype="multipart/form-data">
                 <div class="input-group">
                     <input type="file" class="form-control" name="csv_file" accept=".csv" required>
@@ -128,7 +124,7 @@
             </div>
         </div>
     </div>
-    <form action="{{ url_for('generate_sie', company_id=company.id) }}" method="POST" class="mt-3">
+    <form action="{{ url_for('api.generate_sie', company_id=company.id) }}" method="POST" class="mt-3">
         <button type="submit" class="btn btn-success">Generera SIE-fil</button>
     </form>
 

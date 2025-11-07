@@ -7,11 +7,8 @@ KONTOPLAN = {
     '1613': 'Lön',
     '1630': 'Skatteverket',
     '1680': 'Lån',
-
-    # --- KORRIGERING 1 (Beskrivningarna är bytta) ---
     '1798': 'Avvaktar (Inbetalning)',  # Standard för INKOMMANDE
     '1799': 'Avvaktar (Utbetalning)',  # Standard för UTGÅENDE
-
     '1930': 'Bankkonto',
     '2440': 'Leverantörsskulder',
     '2611': 'Utgående moms (25%)',
@@ -22,6 +19,7 @@ KONTOPLAN = {
     '2643': 'Ingående moms (6%)',
     '2893': 'Utlägg/Avräkning',
     '3041': 'Försäljning',
+    '4010': 'Inköp av varor och material',  # <-- ВАШ СЧЕТ
     '5410': 'Förbrukningsinventarier',
     '5611': 'Drivmedel',
     '6250': 'Porto',
@@ -31,18 +29,20 @@ KONTOPLAN = {
 
 #
 # ===============================================================
-#  АССОЦИАТИВНЫЕ ОПРЕДЕЛЕНИЯ
+#  АССОЦИАТИВНЫЕ ОПРЕДЕЛЕНИЯ (ВОТ ИСПРАВЛЕНИЕ)
 # ===============================================================
 #
 ASSOCIATION_MAP = {
-    # Dina nya regler (de flesta fanns redan):
+    # Ключевые слова из вашего PDF-ридера
+    'xl-bygg': '4010',
+    'jbm': '4010',
+
+    # Существующие правила
     'skatteverket': '1630',
     'lån': '1680',
-    'bankkostnad': '6570',  # <-- KORRIGERING 2 (Nytt nyckelord)
-    'bankkostnader': '6570',  # <-- KORRIGERING 2 (Nytt nyckelord)
+    'bankkostnad': '6570',
+    'bankkostnader': '6570',
     'utlägg': '2893',
-
-    # Gamla regler:
     'lön': '1613',
     'avräkning': '2893',
     'avr': '2893',
@@ -56,41 +56,36 @@ ASSOCIATION_MAP = {
     'ingo': '5611',
 }
 
-#
-# ===============================================================
-#  KORRIGERING 3 (Logiken är bytt)
-# ===============================================================
-#
 DEFAULT_KONTO_DEBIT = '1799'  # Används för Utbetalning (amount < 0)
 DEFAULT_KONTO_KREDIT = '1798'  # Används för Inbetalning (amount > 0)
 
 
 #
 # ===============================================================
-#  "УМНАЯ" ФУНКЦИЯ (Denna behöver inte ändras)
+#  "УМНАЯ" ФУНКЦИЯ (без изменений)
 # ===============================================================
 #
 def get_contra_account(referens, amount):
     """
-    Analyserar transaktionstexten och beloppet
-    för att hitta rätt motkonto.
+    Анализирует описание транзакции и сумму,
+    чтобы найти правильный контра-счет.
     """
     text = referens.lower()
 
-    # 1. Moms först
+    # 1. Сначала НДС (moms)
     if 'moms' in text:
         if amount > 0:  # Inbetalning -> utgående moms
             return '2611'
         else:  # Utbetalning -> ingående moms
             return '2641'
 
-    # 2. Sök efter nyckelord
+    # 2. Поиск по остальным ключевым словам
     for keyword, account in ASSOCIATION_MAP.items():
         if keyword in text:
             return account
 
-    # 3. Om inget hittas, använd standard
+    # 3. Если ничего не найдено, используем счет по умолчанию
     if amount > 0:
-        return DEFAULT_KONTO_KREDIT  # Blir nu 1798
+        return DEFAULT_KONTO_KREDIT  # 1798
     else:
-        return DEFAULT_KONTO_DEBIT  # Blir nu 1799
+        return DEFAULT_KONTO_DEBIT  # 1799

@@ -1,7 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
-
-db = SQLAlchemy()
+from bokforing_app import db  # <-- Импорт из __init__
 
 
 class Company(db.Model):
@@ -19,7 +18,6 @@ class Company(db.Model):
 class BankTransaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey('company.id'), nullable=False)
-
     bokforingsdag = db.Column(db.Date, nullable=False)
     referens = db.Column(db.String(200))
     belopp = db.Column(db.Float, nullable=False)
@@ -38,20 +36,46 @@ class BookkeepingEntry(db.Model):
     kredit = db.Column(db.Float, default=0.0)
 
 
+#
+# ===============================================================
+#  ОБНОВЛЕННАЯ МОДЕЛЬ BILAGA (с новыми полями)
+# ===============================================================
+#
 class Bilaga(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey('company.id'), nullable=False)
     bank_transaction_id = db.Column(db.Integer, db.ForeignKey('bank_transaction.id'), nullable=True)
 
+    # --- Метаданные файла ---
     filepath = db.Column(db.String(300), nullable=False)
-    filename = db.Column(db.String(200))
-    status = db.Column(db.String(20), default='unassigned')
+    filename = db.Column(db.String(200))  # Оригинальное имя файла
+    status = db.Column(db.String(20), default='unassigned')  # unassigned / assigned
 
-    bilaga_date = db.Column(db.Date, nullable=True)
-    brutto_amount = db.Column(db.Float, nullable=True)
-    netto_amount = db.Column(db.Float, nullable=True)
-    moms_amount = db.Column(db.Float, nullable=True)
+    # --- Новые поля из вашего парсера ---
+
+    # Данные продавца (Säljare)
+    saljare_namn = db.Column(db.String(200), nullable=True)
+    saljare_orgnr = db.Column(db.String(20), nullable=True)
+    saljare_bankgiro = db.Column(db.String(20), nullable=True)
+
+    # Данные клиента (Kund)
+    kund_namn = db.Column(db.String(200), nullable=True)
+    kund_orgnr = db.Column(db.String(20), nullable=True)
+
+    # Данные счета (Faktura)
+    fakturanr = db.Column(db.String(50), nullable=True)
+    fakturadatum = db.Column(db.Date, nullable=True)
+    forfallodag = db.Column(db.Date, nullable=True)
+    ocr = db.Column(db.String(50), nullable=True)
+
+    # Суммы
+    brutto_amount = db.Column(db.Float, nullable=True)  # Total / Att Betala
+    netto_amount = db.Column(db.Float, nullable=True)  # Netto
+    moms_amount = db.Column(db.Float, nullable=True)  # Moms
+
+    # Бухгалтерия
     suggested_konto = db.Column(db.String(10), nullable=True)
 
+    # --- Связи (Relationships) ---
     company = db.relationship('Company', back_populates='bilagor')
     transaction = db.relationship('BankTransaction', back_populates='attachments')
