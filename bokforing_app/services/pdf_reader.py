@@ -21,13 +21,6 @@ class Saljare(BaseModel):
     momsregnr: Optional[str] = None
     bankgiro: Optional[str] = None
 
-class OrderItem(BaseModel):
-    artnr: Optional[str] = None
-    benamning: Optional[str] = None
-    antal: Optional[str] = None
-    enhet: Optional[str] = None
-    a_pris: Optional[str] = None
-    summa: Optional[str] = None
 
 class InvoiceDataStrict(BaseModel):
     fakturanr: Optional[str] = None
@@ -38,10 +31,9 @@ class InvoiceDataStrict(BaseModel):
     total_moms: Optional[str] = None
     total_brutto: Optional[str] = None
     att_betala: Optional[str] = None
-    kund: Kund
-    saljare: Saljare
-    orders: List[OrderItem] = Field(default_factory=list)
-
+    kund: None
+    saljare: None
+    information: None
 
 # --- 2. Основная функция ---
 

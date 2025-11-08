@@ -36,11 +36,6 @@ class BookkeepingEntry(db.Model):
     kredit = db.Column(db.Float, default=0.0)
 
 
-#
-# ===============================================================
-#  ОБНОВЛЕННАЯ МОДЕЛЬ BILAGA (с новыми полями)
-# ===============================================================
-#
 class Bilaga(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     company_id = db.Column(db.Integer, db.ForeignKey('company.id'), nullable=False)
@@ -48,30 +43,35 @@ class Bilaga(db.Model):
 
     # --- Метаданные файла ---
     filepath = db.Column(db.String(300), nullable=False)
-    filename = db.Column(db.String(200))  # Оригинальное имя файла
-    status = db.Column(db.String(20), default='unassigned')  # unassigned / assigned
+    filename = db.Column(db.String(200))
+    status = db.Column(db.String(20), default='unassigned')
 
-    # --- Новые поля из вашего парсера ---
-
-    # Данные продавца (Säljare)
-    saljare_namn = db.Column(db.String(200), nullable=True)
-    saljare_orgnr = db.Column(db.String(20), nullable=True)
-    saljare_bankgiro = db.Column(db.String(20), nullable=True)
-
-    # Данные клиента (Kund)
-    kund_namn = db.Column(db.String(200), nullable=True)
-    kund_orgnr = db.Column(db.String(20), nullable=True)
-
-    # Данные счета (Faktura)
+    # --- Новые поля из Gemini ---
     fakturanr = db.Column(db.String(50), nullable=True)
     fakturadatum = db.Column(db.Date, nullable=True)
     forfallodag = db.Column(db.Date, nullable=True)
     ocr = db.Column(db.String(50), nullable=True)
+    total_netto = db.Column(db.String(50), nullable=True)
+    total_moms = db.Column(db.String(50), nullable=True)
+    total_brutto = db.Column(db.String(50), nullable=True)
+    att_betala = db.Column(db.String(50), nullable=True)
 
-    # Суммы
-    brutto_amount = db.Column(db.Float, nullable=True)  # Total / Att Betala
-    netto_amount = db.Column(db.Float, nullable=True)  # Netto
-    moms_amount = db.Column(db.Float, nullable=True)  # Moms
+    # Данные клиента (Kund)
+    kund_namn = db.Column(db.String(200), nullable=True)
+    kund_orgnr = db.Column(db.String(20), nullable=True)
+    kund_nummer = db.Column(db.String(50), nullable=True)
+    kund_adress = db.Column(db.String(200), nullable=True)
+
+    # Данные продавца (Säljare)
+    saljare_namn = db.Column(db.String(200), nullable=True)
+    saljare_orgnr = db.Column(db.String(20), nullable=True)
+    saljare_momsregnr = db.Column(db.String(50), nullable=True)
+    saljare_bankgiro = db.Column(db.String(20), nullable=True)
+
+    # Суммы (числовые)
+    brutto_amount = db.Column(db.Float, nullable=True)
+    netto_amount = db.Column(db.Float, nullable=True)
+    moms_amount = db.Column(db.Float, nullable=True)
 
     # Бухгалтерия
     suggested_konto = db.Column(db.String(10), nullable=True)

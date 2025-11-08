@@ -7,9 +7,21 @@ document.addEventListener('DOMContentLoaded', function() {
         return;
     }
 
+    // === PDF.js Viewer State ===
+    let pdfDoc = null;
+    let pageNum = 1;
+    let pageRendering = false;
+    let pageNumPending = null;
+    let pdfScale = 1.0; // Начальный масштаб
+    const pdfCanvas = document.getElementById('pdf-canvas');
+    const pdfCtx = pdfCanvas.getContext('2d');
+    const pdfViewerContainer = document.getElementById('pdf-viewer-container');
+    const zoomPercentSpan = document.getElementById('pdf-zoom-percent');
+
     const entriesContainer = bokforBilagaModal.querySelector('#bokfor-entries-container');
     const addRowBtn = bokforBilagaModal.querySelector('#bokfor-add-row-btn');
-    const saveBtn = bokforBilagaModal.querySelector('#bokfor-save-btn');
+    const saveMetadataBtn = bokforBilagaModal.querySelector('#save-metadata-btn');
+    const bokforBtn = bokforBilagaModal.querySelector('#bokfor-btn');
     const modalAlert = bokforBilagaModal.querySelector('#bokfor-modal-alert');
     const rowTemplate = document.getElementById('entry-row-template');
 
@@ -19,23 +31,91 @@ document.addEventListener('DOMContentLoaded', function() {
     const multiUploadInput = document.getElementById('multi_bilaga_files');
     const inboxListTbody = document.getElementById('bilagor-table-body');
 
-    // Helper function to format currency with space as thousand separator and comma as decimal
     function formatCurrency(amount) {
         if (amount === null || amount === undefined || isNaN(amount)) {
             return '';
         }
-        // Convert to number and fix to 2 decimal places
         const num = parseFloat(amount).toFixed(2);
-        // Replace dot with comma for decimal separator
         let parts = num.split('.');
         let integerPart = parts[0];
         let decimalPart = parts[1];
-
-        // Add space as thousand separator
         integerPart = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
-
         return integerPart + ',' + decimalPart;
     }
+
+    // === PDF.js Functions ===
+    async function renderPdfPage(num) {
+        pageRendering = true;
+        document.getElementById('pdf-page-num').textContent = num;
+        zoomPercentSpan.textContent = `${Math.round(pdfScale * 100)}%`;
+
+        const page = await pdfDoc.getPage(num);
+        const viewport = page.getViewport({ scale: pdfScale });
+
+        pdfCanvas.height = viewport.height;
+        pdfCanvas.width = viewport.width;
+
+        const renderContext = {
+            canvasContext: pdfCtx,
+            viewport: viewport
+        };
+        const renderTask = page.render(renderContext);
+
+        await renderTask.promise;
+        pageRendering = false;
+        if (pageNumPending !== null) {
+            renderPdfPage(pageNumPending);
+            pageNumPending = null;
+        }
+    }
+
+    function queueRenderPage(num) {
+        if (pageRendering) {
+            pageNumPending = num;
+        } else {
+            renderPdfPage(num);
+        }
+    }
+
+    async function loadPdf(url) {
+        try {
+            const loadingTask = window.pdfjsLib.getDocument(url);
+            pdfDoc = await loadingTask.promise;
+            document.getElementById('pdf-page-count').textContent = pdfDoc.numPages;
+            pageNum = 1;
+            pdfScale = 1.0; // Устанавливаем начальный масштаб 100%
+
+            renderPdfPage(pageNum);
+        } catch (error) {
+            console.error('Error loading PDF:', error);
+            alert('Kunde inte ladda PDF-filen.');
+        }
+    }
+
+    document.getElementById('pdf-prev').addEventListener('click', () => {
+        if (pageNum <= 1) return;
+        pageNum--;
+        queueRenderPage(pageNum);
+    });
+
+    document.getElementById('pdf-next').addEventListener('click', () => {
+        if (pageNum >= pdfDoc.numPages) return;
+        pageNum++;
+        queueRenderPage(pageNum);
+    });
+
+    document.getElementById('pdf-zoom-in').addEventListener('click', () => {
+        if (!pdfDoc) return;
+        pdfScale += 0.2;
+        queueRenderPage(pageNum);
+    });
+
+    document.getElementById('pdf-zoom-out').addEventListener('click', () => {
+        if (!pdfDoc || pdfScale <= 0.3) return;
+        pdfScale -= 0.2;
+        queueRenderPage(pageNum);
+    });
+
 
     multiUploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -81,35 +161,49 @@ document.addEventListener('DOMContentLoaded', function() {
         lastFocusedElement = e.relatedTarget;
         const button = e.relatedTarget;
         const bilagaId = button.dataset.bilagaId;
+        const fileUrl = button.dataset.url;
+
+        // Загрузка PDF с помощью PDF.js
+        if (fileUrl.toLowerCase().endsWith('.pdf')) {
+             document.getElementById('pdf-viewer-container').style.display = 'block';
+             loadPdf(fileUrl);
+        } else {
+             // Если это не PDF, можно показать заглушку или изображение
+             document.getElementById('pdf-viewer-container').style.display = 'none';
+             // TODO: Показать изображение, если это не PDF
+        }
+
 
         entriesContainer.innerHTML = '';
         modalAlert.style.display = 'none';
 
         bokforBilagaModal.querySelector('#bokfor-bilaga-id').value = bilagaId;
 
-        const date = button.dataset.date || new Date().toISOString().split('T')[0];
-        const filename = button.dataset.filename || "Okänd Bilaga";
         const brutto = parseFloat(button.dataset.brutto) || 0;
         const netto = parseFloat(button.dataset.netto) || 0;
         const moms = parseFloat(button.dataset.moms) || 0;
         const konto = button.dataset.konto || '';
 
-        bokforBilagaModal.querySelector('#bokfor-datum').value = date;
-        bokforBilagaModal.querySelector('#bokfor-ver-text').value = filename;
-        
+        // Заполнение полей
         document.getElementById('metadata-saljare-namn').value = button.dataset.saljareNamn || '';
         document.getElementById('metadata-saljare-orgnr').value = button.dataset.saljareOrgnr || '';
+        document.getElementById('metadata-saljare-momsregnr').value = button.dataset.saljareMomsregnr || '';
+        document.getElementById('metadata-saljare-bankgiro').value = button.dataset.saljareBankgiro || '';
         document.getElementById('metadata-kund-namn').value = button.dataset.kundNamn || '';
         document.getElementById('metadata-kund-orgnr').value = button.dataset.kundOrgnr || '';
+        document.getElementById('metadata-kund-nummer').value = button.dataset.kundNummer || '';
+        document.getElementById('metadata-kund-adress').value = button.dataset.kundAdress || '';
         document.getElementById('metadata-fakturanr').value = button.dataset.fakturanr || '';
         document.getElementById('metadata-ocr').value = button.dataset.ocr || '';
-        document.getElementById('metadata-fakturadatum').value = button.dataset.fakturadatum || '';
+        document.getElementById('metadata-fakturadatum').value = button.dataset.date || '';
         document.getElementById('metadata-forfallodag').value = button.dataset.forfallodag || '';
-        document.getElementById('metadata-total-amount').value = brutto > 0 ? brutto.toFixed(2) : '';
-        document.getElementById('metadata-moms-amount').value = moms > 0 ? moms.toFixed(2) : '';
+        document.getElementById('metadata-total-netto').value = button.dataset.totalNetto || '';
+        document.getElementById('metadata-total-moms').value = button.dataset.totalMoms || '';
+        document.getElementById('metadata-total-brutto').value = button.dataset.totalBrutto || '';
+        document.getElementById('metadata-att-betala').value = button.dataset.attBetala || '';
 
         const costAmount = (netto > 0) ? netto : (brutto - moms);
-        createEntryRow(konto || (brutto > 0 ? '1799' : '1798'), costAmount > 0 ? costAmount.toFixed(2) : null, null);
+        createEntryRow(konto || (brutto > 0 ? '4010' : ''), costAmount > 0 ? costAmount.toFixed(2) : null, null);
 
         if (moms > 0) {
             createEntryRow('2641', moms.toFixed(2), null);
@@ -123,6 +217,11 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     bokforBilagaModal.addEventListener('hidden.bs.modal', function() {
+        // Очистка состояния PDF.js
+        pdfDoc = null;
+        pageNum = 1;
+        pdfCtx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+
         if (lastFocusedElement) {
             lastFocusedElement.focus();
         }
@@ -132,7 +231,43 @@ document.addEventListener('DOMContentLoaded', function() {
         createEntryRow('', null, null);
     });
 
-    saveBtn.addEventListener('click', async function() {
+    saveMetadataBtn.addEventListener('click', async function() {
+        const bilagaId = bokforBilagaModal.querySelector('#bokfor-bilaga-id').value;
+        const data = {
+            fakturadatum: document.getElementById('metadata-fakturadatum').value,
+            forfallodag: document.getElementById('metadata-forfallodag').value,
+            fakturanr: document.getElementById('metadata-fakturanr').value,
+            ocr: document.getElementById('metadata-ocr').value,
+            saljare_namn: document.getElementById('metadata-saljare-namn').value,
+            saljare_orgnr: document.getElementById('metadata-saljare-orgnr').value,
+            saljare_momsregnr: document.getElementById('metadata-saljare-momsregnr').value,
+            saljare_bankgiro: document.getElementById('metadata-saljare-bankgiro').value,
+            kund_namn: document.getElementById('metadata-kund-namn').value,
+            kund_orgnr: document.getElementById('metadata-kund-orgnr').value,
+            kund_nummer: document.getElementById('metadata-kund-nummer').value,
+            kund_adress: document.getElementById('metadata-kund-adress').value,
+            total_netto: document.getElementById('metadata-total-netto').value,
+            total_moms: document.getElementById('metadata-total-moms').value,
+            total_brutto: document.getElementById('metadata-total-brutto').value,
+            att_betala: document.getElementById('metadata-att-betala').value,
+            suggested_konto: document.getElementById('bokfor-entries-container').querySelector('.konto-input').value
+        };
+
+        try {
+            const response = await fetch(`/api/bilaga/${bilagaId}/metadata`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) throw new Error((await response.json()).error);
+            alert('Ändringar sparade!');
+            location.reload();
+        } catch (error) {
+            alert('Fel: ' + error.message);
+        }
+    });
+
+    bokforBtn.addEventListener('click', async function() {
         const bilagaId = bokforBilagaModal.querySelector('#bokfor-bilaga-id').value;
         const entries = [];
         entriesContainer.querySelectorAll('tr').forEach(row => {
@@ -148,8 +283,8 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        saveBtn.disabled = true;
-        saveBtn.textContent = 'Sparar...';
+        bokforBtn.disabled = true;
+        bokforBtn.textContent = 'Bokför...';
 
         try {
             const response = await fetch(`/api/bilaga/${bilagaId}/bokfor`, {
@@ -175,8 +310,8 @@ document.addEventListener('DOMContentLoaded', function() {
         } catch (error) {
             showBokforError(error.message);
         } finally {
-            saveBtn.disabled = false;
-            saveBtn.textContent = 'Spara & Bokför';
+            bokforBtn.disabled = false;
+            bokforBtn.textContent = 'Bokför';
         }
     });
 
@@ -214,8 +349,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const newRow = rowTemplate.content.cloneNode(true).firstElementChild;
         const kontoInput = newRow.querySelector('.konto-input');
 
-        newRow.querySelector('.debet-input').value = formatCurrency(debet);
-        newRow.querySelector('.kredit-input').value = formatCurrency(kredit);
+        newRow.querySelector('.debet-input').value = debet || '';
+        newRow.querySelector('.kredit-input').value = kredit || '';
 
         newRow.querySelectorAll('input').forEach(input => {
             input.addEventListener('input', calculateBokforTotals);
@@ -276,8 +411,6 @@ document.addEventListener('DOMContentLoaded', function() {
         const netto = parseFloat(file.netto_amount) || 0;
 
         const bruttoStr = brutto > 0 ? formatCurrency(brutto) : '';
-        const momsStr = moms > 0 ? formatCurrency(moms) : '';
-        const nettoStr = netto > 0 ? formatCurrency(netto) : '';
         const dateStr = file.fakturadatum || '';
 
         const kontoStr = file.suggested_konto || '';
@@ -285,6 +418,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const saljareNamn = file.saljare_namn || '';
         const saljareOrgnr = file.saljare_orgnr || '';
+        const saljareMomsregnr = file.saljare_momsregnr || '';
         const saljareBankgiro = file.saljare_bankgiro || '';
         const fakturanr = file.fakturanr || '';
         const ocr = file.ocr || '';
@@ -293,13 +427,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const kundNamn = file.kund_namn || '';
         const kundOrgnr = file.kund_orgnr || '';
         const kundNummer = file.kund_nummer || '';
+        const kundAdress = file.kund_adress || '';
+
+        const totalNetto = file.total_netto || '';
+        const totalMoms = file.total_moms || '';
+        const totalBrutto = file.total_brutto || '';
+        const attBetala = file.att_betala || '';
 
         return `
         <tr id="bilaga-card-${file.id}">
             <td>
-                <a href="#" class="bilaga-preview-link" data-url="${file.url}" data-bs-toggle="modal" data-bs-target="#previewModal">
-                    <strong>${saljareNamn || file.filename}</strong>
-                </a>
+                <strong>${saljareNamn || file.filename}</strong>
                 ${saljareNamn ? `<br><small class="text-muted">${file.filename}</small>` : ''}
             </td>
             <td>${dateStr || '---'}</td>
@@ -314,6 +452,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <button class="btn btn-secondary btn-sm edit-metadata-btn" 
                         data-bs-toggle="modal" 
                         data-bs-target="#bokforBilagaModal"
+                        data-url="${file.url}"
                         data-bilaga-id="${file.id}"
                         data-filename="${saljareNamn || file.filename}"
                         data-date="${dateStr}"
@@ -326,23 +465,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         data-forfallodag="${forfallodagStr}"
                         data-saljare-namn="${saljareNamn}"
                         data-saljare-orgnr="${saljareOrgnr}"
+                        data-saljare-momsregnr="${saljareMomsregnr}"
                         data-saljare-bankgiro="${saljareBankgiro}"
                         data-kund-namn="${kundNamn}"
                         data-kund-orgnr="${kundOrgnr}"
-                        data-kund-nummer="${kundNummer}">
+                        data-kund-nummer="${kundNummer}"
+                        data-kund-adress="${kundAdress}"
+                        data-total-netto="${totalNetto}"
+                        data-total-moms="${totalMoms}"
+                        data-total-brutto="${totalBrutto}"
+                        data-att-betala="${attBetala}">
                     Redigera
-                </button>
-                <button class="btn btn-success btn-sm bokfor-bilaga-btn" 
-                        data-bs-toggle="modal"
-                        data-bs-target="#bokforBilagaModal"
-                        data-bilaga-id="${file.id}"
-                        data-filename="${saljareNamn || file.filename}"
-                        data-date="${dateStr}"
-                        data-brutto="${brutto}"
-                        data-netto="${netto}"
-                        data-moms="${moms}"
-                        data-konto="${kontoStr}">
-                    Bokför
                 </button>
                 <button class="btn btn-danger btn-sm delete-bilaga-btn" data-bilaga-id="${file.id}">Ta bort</button>
             </td>
