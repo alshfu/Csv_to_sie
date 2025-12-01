@@ -7,8 +7,8 @@ import os
 import json
 from flask import current_app
 from bokforing_app import db
-from bokforing_app.models import BankTransaction, BookkeepingEntry, Bilaga
-from bokforing_app.services.accounting_config import KONTOPLAN, ASSOCIATION_MAP, get_contra_account
+from bokforing_app.models import BankTransaction, BookkeepingEntry, Bilaga, Konto, Association
+from bokforing_app.services.accounting_config import KONTOPLAN, ASSOCIATION_MAP # Ta bort get_contra_account
 from bokforing_app.services.pdf_reader import extract_exact_json_from_pdf
 from bokforing_app.services.file_service import save_bilaga_file
 
@@ -40,6 +40,43 @@ def get_all_bilagor(company_id):
     ).order_by(Bilaga.status.asc(), Bilaga.fakturadatum.desc()).all()
 
 
+def get_kontoplan_from_db():
+    return {k.konto_nr: k.beskrivning for k in Konto.query.all()}
+
+def get_association_map_from_db():
+    return {a.keyword: a.konto_nr for a in Association.query.all()}
+
+def get_contra_account(referens_text, amount):
+    """
+    Föreslår ett motkonto baserat på referenstexten och den databasbaserade ASSOCIATION_MAP.
+    """
+    referens_lower = referens_text.lower()
+    for keyword, konto_nr in ASSOCIATION_MAP.items(): # Använder den globala ASSOCIATION_MAP
+        if keyword.lower() in referens_lower:
+            return konto_nr
+    return '1799' if amount < 0 else '1798' # Standardkonto om ingen match hittas
+
+
+def populate_initial_accounting_data():
+    """
+    Fyller databasen med initial kontoplan och associationsdata från accounting_config.py.
+    Körs endast om tabellerna är tomma.
+    """
+    if Konto.query.count() == 0:
+        print("Populating initial KONTOPLAN data...")
+        for konto_nr, beskrivning in KONTOPLAN.items():
+            db.session.add(Konto(konto_nr=konto_nr, beskrivning=beskrivning))
+        db.session.commit()
+        print(f"Added {len(KONTOPLAN)} accounts to the database.")
+
+    if Association.query.count() == 0:
+        print("Populating initial ASSOCIATION_MAP data...")
+        for keyword, konto_nr in ASSOCIATION_MAP.items():
+            db.session.add(Association(keyword=keyword, konto_nr=konto_nr))
+        db.session.commit()
+        print(f"Added {len(ASSOCIATION_MAP)} associations to the database.")
+
+
 def process_csv_upload(file, company_id):
     df = pd.read_csv(file, sep=';', header=1, decimal=',', encoding='latin-1')
     df = df.dropna(subset=['Bokföringsdag'])
@@ -47,7 +84,7 @@ def process_csv_upload(file, company_id):
     for _, row in df.iterrows():
         amount = round(float(row['Insättning/Uttag']), 2)
         referens_text = str(row['Referens'])
-        contra_konto = get_contra_account(referens_text, amount)
+        contra_konto = get_contra_account(referens_text, amount) # Använder den nya funktionen
 
         new_trans = BankTransaction(
             company_id=company_id,
@@ -156,17 +193,20 @@ def process_bilaga_upload(file, company_id, base_upload_path):
         new_bilaga.kund_nummer = kund.get('kundnummer')
         new_bilaga.kund_adress = kund.get('adress')
         
+        # Hämta association_map från den globala variabeln
+        association_map_db = ASSOCIATION_MAP
+
         orders = parsed_data.get('orders', [])
         if orders and isinstance(orders, list) and len(orders) > 0 and isinstance(orders[0], dict) and orders[0].get('items'):
             first_item_name = orders[0]['items'][0].get('benamning', '').lower()
-            for key, konto_nr in ASSOCIATION_MAP.items():
+            for key, konto_nr in association_map_db.items():
                 if key in first_item_name:
                     new_bilaga.suggested_konto = konto_nr
                     break
         
         if not new_bilaga.suggested_konto and new_bilaga.saljare_namn:
              fn_lower = new_bilaga.saljare_namn.lower()
-             for key, konto_nr in ASSOCIATION_MAP.items():
+             for key, konto_nr in association_map_db.items():
                 if key in fn_lower:
                     new_bilaga.suggested_konto = konto_nr
                     break

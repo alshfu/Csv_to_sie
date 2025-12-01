@@ -1,418 +1,178 @@
 document.addEventListener('DOMContentLoaded', function () {
-    const bokforingModal = document.getElementById('bokforingModal');
-    if (!bokforingModal) {
-        return; // Vi är inte på en sida med ett modal-fönster, avsluta.
+    const bokforingModalEl = document.getElementById('bokforingModal');
+    if (!bokforingModalEl) {
+        return;
     }
 
-    // Element i modal-fönstret
+    const bokforingModal = new bootstrap.Modal(bokforingModalEl);
     const entriesContainer = document.getElementById('entries-container');
     const rowTemplate = document.getElementById('entry-row-template');
     const addRowBtn = document.getElementById('add-row-btn');
     const saveBtn = document.getElementById('save-entries-btn');
     const modalAlert = document.getElementById('modal-alert');
-    const momsBtnGroup = document.getElementById('moms-btn-group');
-
-    // Bilaga-element (inuti modalen)
+    const transactionsTableBody = document.getElementById('transactions-table-body');
     const attachedBilagaList = document.getElementById('bilaga-list');
-    const linkableBilagaList = document.getElementById('link-bilaga-list');
-    const bilagaPreview = document.getElementById('bilaga-preview');
-    const bilagaPreviewPlaceholder = document.getElementById('bilaga-preview-placeholder');
+    
+    const batchBookBtn = document.getElementById('batch-book-btn');
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    const selectedCountSpan = document.getElementById('selected-count');
 
     let currentTransId = null;
-    let activeRowForMoms = null;
     let currentBankAmount = 0;
 
-    // 1. Händelse: Modal-fönstret "Bokföring" öppnas
-    bokforingModal.addEventListener('show.bs.modal', async function (event) {
-        const triggerElement = event.relatedTarget;
-        currentTransId = triggerElement.getAttribute('data-trans-id');
-        currentBankAmount = parseFloat(triggerElement.getAttribute('data-amount')) || 0;
+    function showModalError(message) {
+        console.error("Modal Fel:", message);
+        modalAlert.textContent = message;
+        modalAlert.style.display = 'block';
+        setTimeout(() => { modalAlert.style.display = 'none'; }, 5000);
+    }
+
+    async function openModalForTransaction(transId, prefilledEntries = null) {
+        const row = document.getElementById(`trans-row-${transId}`);
+        if (!row) return;
+
+        currentTransId = transId;
+        const cells = row.querySelectorAll('td');
+        currentBankAmount = parseFloat(cells[3].textContent);
 
         document.getElementById('modal-trans-id').value = currentTransId;
-        document.getElementById('modal-date').textContent = triggerElement.getAttribute('data-date');
-        document.getElementById('modal-referens').textContent = triggerElement.getAttribute('data-referens');
+        document.getElementById('modal-date').textContent = cells[1].textContent;
+        document.getElementById('modal-referens').textContent = cells[2].textContent;
         document.getElementById('modal-amount').textContent = currentBankAmount.toFixed(2);
 
-        // Återställ
         modalAlert.style.display = 'none';
         entriesContainer.innerHTML = '';
-        disableMomsButtons();
         attachedBilagaList.innerHTML = '<li>Laddar...</li>';
-        linkableBilagaList.innerHTML = '<li>Laddar...</li>';
 
-        bilagaPreview.setAttribute('src', 'about:blank');
-        bilagaPreview.style.display = 'none';
-        bilagaPreviewPlaceholder.style.display = 'flex';
+        bokforingModal.show();
 
-        // Ladda data
-        try {
-            const [entriesResponse, bilagorResponse] = await Promise.all([
-                fetch(`/get_entries/${currentTransId}`),
-                fetch(`/get_bilagor/${currentTransId}`)
-            ]);
-
-            if (!entriesResponse.ok) throw new Error('Kunde inte ladda bokföringsrader.');
-            if (!bilagorResponse.ok) throw new Error('Kunde inte ladda bilagor.');
-
-            const entries = await entriesResponse.json();
-            entriesContainer.innerHTML = '';
-            entries.forEach(entry => createEntryRow(entry.konto, entry.debet, entry.kredit));
-            lockBankRow();
-            calculateTotals();
-
-            const bilagor = await bilagorResponse.json();
-            updateAttachedBilagaList(bilagor);
-
-            updateLinkableBilagaList();
-
-        } catch (error) {
-            showModalError(error.message);
-        }
-    });
-
-    //
-    // ===============================================================
-    //  ИСПРАВЛЕННАЯ ЛОГИКА: "Koppla" (Привязка)
-    // ===============================================================
-    //
-    linkableBilagaList.addEventListener('click', async function(e) {
-        if (!e.target.classList.contains('link-bilaga-btn')) return;
-
-        const bilagaId = e.target.dataset.bilagaId;
-        const filename = e.target.dataset.filename;
-        const url = e.target.dataset.url;
-
-        // --- 1. АВТО-ЗАПОЛНЕНИЕ ---
-
-        // Находим кнопку "Redigera info" в главном инбоксе,
-        // чтобы прочитать ВСЕ сохраненные data-атрибуты
-        const editBtn = document.querySelector(`.edit-metadata-btn[data-bilaga-id="${bilagaId}"]`);
-
-        if (editBtn) {
-            // Читаем распознанные (или вручную введенные) данные
-            const netto = parseFloat(editBtn.dataset.nettoAmount) || 0;
-            const moms = parseFloat(editBtn.dataset.momsAmount) || 0;
-
-            //
-            // ===> ВОТ ИСПРАВЛЕНИЕ: Мы берем НОМЕР СЧЕТА прямо из data-атрибута <===
-            //
-            const kontoToUse = editBtn.dataset.suggestedKonto || null; // (напр., '2440' или '5611')
-
-            const isDebet = currentBankAmount < 0; // Исходящий -> Debet
-            const isKredit = currentBankAmount > 0; // Входящий -> Kredit
-
-            // 2. Очищаем строки по умолчанию (1798/1799)
-            entriesContainer.querySelectorAll('tr').forEach(row => {
-                const konto = row.querySelector('.konto-input').value;
-                if (konto === '1798' || konto === '1799') {
-                    const tomselectInstance = row.querySelector('.konto-input').tomselect;
-                    if(tomselectInstance) tomselectInstance.destroy();
-                    row.remove();
-                }
-            });
-
-            // 3. Создаем новые, правильные строки
-
-            // Если у нас есть суммы из квитанции, используем их
-            if (netto > 0 || moms > 0) {
-                if (isDebet) { // Исходящий (покупка)
-                    createEntryRow(kontoToUse || '1799', netto.toFixed(2), 0);
-                    if (moms > 0) createEntryRow('2641', moms.toFixed(2), 0); // Ingående moms
-
-                } else { // Входящий (продажа)
-                    createEntryRow(kontoToUse || '1798', 0, netto.toFixed(2));
-                    if (moms > 0) createEntryRow('2611', 0, moms.toFixed(2)); // Utgående moms
-                }
-            } else {
-                // Если суммы не распознаны (0.00), мы не можем их разделить.
-                // Мы просто используем 'suggested_konto' для ВСЕЙ суммы.
-                const defaultKonto = isDebet ? '1799' : '1798';
-                const totalBankAmount = Math.abs(currentBankAmount);
-
-                createEntryRow(
-                    kontoToUse || defaultKonto,
-                    isDebet ? totalBankAmount.toFixed(2) : 0,
-                    isKredit ? totalBankAmount.toFixed(2) : 0
-                );
+        entriesContainer.innerHTML = '';
+        if (prefilledEntries) {
+            prefilledEntries.forEach(entry => createEntryRow(entry.konto, entry.debet, entry.kredit));
+        } else {
+            try {
+                const response = await fetch(`/api/entries/${currentTransId}`);
+                if (!response.ok) throw new Error('Kunde inte ladda bokföringsrader.');
+                const entries = await response.json();
+                entries.forEach(entry => createEntryRow(entry.konto, entry.debet, entry.kredit));
+            } catch (error) {
+                showModalError(error.message);
             }
-
-            calculateTotals();
         }
-        // --- КОНЕЦ АВТО-ЗАПОЛНЕНИЯ ---
+        lockBankRow();
+        calculateTotals();
+    }
 
-        // 4. Привязываем квитанцию
-        try {
-            const response = await fetch(`/link_bilaga`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    bilaga_id: bilagaId,
-                    transaction_id: currentTransId
-                })
-            });
-            if (!response.ok) throw new Error('Kunde inte koppla.');
+    transactionsTableBody.addEventListener('click', async function(e) {
+        const target = e.target;
+        const row = target.closest('tr');
+        if (!row) return;
+        
+        const transId = row.querySelector('.transaction-checkbox')?.dataset.transId;
+        if (!transId) return;
 
-            e.target.closest('li').remove();
-            document.getElementById(`bilaga-card-${bilagaId}`)?.remove();
-            appendBilagaToList(filename, url, bilagaId);
-
-        } catch (error) {
-            showModalError(error.message);
-        }
-    });
-
-    // 3. Händelse: Lossa Bilaga / Förhandsgranska
-    attachedBilagaList.addEventListener('click', async function(e) {
-        // Förhandsgranskning
-        if (e.target.classList.contains('bilaga-preview-link')) {
-            e.preventDefault();
-            const url = e.target.dataset.url;
-            bilagaPreview.setAttribute('src', url);
-            bilagaPreview.style.display = 'block';
-            bilagaPreviewPlaceholder.style.display = 'none';
-            attachedBilagaList.querySelectorAll('a').forEach(a => a.classList.remove('fw-bold'));
-            e.target.classList.add('fw-bold');
-        }
-
-        // Lossa (TODO)
-        if (e.target.classList.contains('unlink-bilaga-btn')) {
-            alert('Funktionen "Koppla från" är inte implementerad än.');
+        if (target.closest('.ask-ai-btn')) {
+            const aiButton = target.closest('.ask-ai-btn');
+aiButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+            aiButton.disabled = true;
+            try {
+                const response = await fetch(`/api/transaction/${transId}/ask_gemini`, { method: 'POST' });
+                const data = await response.json();
+                console.log('Svar från Gemini:', data);
+                if (!response.ok) throw new Error(data.error || 'Okänt AI-fel');
+                await openModalForTransaction(transId, data.entries);
+            } catch (error) {
+                showModalError(`AI-fel: ${error.message}`);
+            } finally {
+                aiButton.innerHTML = '<i class="bi bi-robot"></i> AI';
+                aiButton.disabled = false;
+            }
+        } else if (target.classList.contains('open-modal-cell')) {
+            await openModalForTransaction(transId);
+        } else if (target.classList.contains('transaction-checkbox')) {
+            updateSelectedCount();
         }
     });
 
-    // 4. Knappen: Lägg till rad
-    addRowBtn.addEventListener('click', () => createEntryRow('', '', ''));
+    function updateSelectedCount() {
+        const selectedCheckboxes = transactionsTableBody.querySelectorAll('.transaction-checkbox:checked');
+        const count = selectedCheckboxes.length;
+        selectedCountSpan.textContent = count;
+        batchBookBtn.disabled = count === 0;
+    }
 
-    // 5. Knappen: Spara
-    saveBtn.addEventListener('click', async function() {
-        const entries = [];
-        const rows = entriesContainer.querySelectorAll('tr');
-
-        rows.forEach(row => {
-            const konto = row.querySelector('.konto-input').value;
-            const debet = row.querySelector('.debet-input').value;
-            const kredit = row.querySelector('.kredit-input').value;
-            if (konto) { entries.push({ konto: konto, debet: debet || 0, kredit: kredit || 0 }); }
+    selectAllCheckbox.addEventListener('change', function() {
+        const checkboxes = transactionsTableBody.querySelectorAll('.transaction-checkbox');
+        checkboxes.forEach(checkbox => {
+            checkbox.checked = selectAllCheckbox.checked;
         });
+        updateSelectedCount();
+    });
 
-        if (!validateBalance()) {
-            showModalError('Obalans! Debet och Kredit måste vara lika.');
-            return;
-        }
+    batchBookBtn.addEventListener('click', async function() {
+        const selectedCheckboxes = transactionsTableBody.querySelectorAll('.transaction-checkbox:checked');
+        const transactionIds = Array.from(selectedCheckboxes).map(cb => cb.dataset.transId);
+
+        if (transactionIds.length === 0) return;
+
+        const originalButtonText = batchBookBtn.innerHTML;
+        batchBookBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Bokför...';
+        batchBookBtn.disabled = true;
 
         try {
-            const response = await fetch(`/save_entries/${currentTransId}`, {
+            const response = await fetch('/api/batch_book_with_ai', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ entries: entries })
+                body: JSON.stringify({ transaction_ids: transactionIds })
             });
             const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Okänt serverfel');
 
-            const modalInstance = bootstrap.Modal.getInstance(bokforingModal);
-            if (modalInstance) { modalInstance.hide(); }
-
-            const processedRow = document.getElementById(`trans-row-${currentTransId}`);
-            if (processedRow) {
-                // Kolla om vi är på Bokföring-sidan
-                if (document.getElementById('multi-bilaga-form')) {
-                    // Vi är på 'transactions.html', ta bort raden
-                    processedRow.style.transition = 'opacity 0.5s ease';
-                    processedRow.style.opacity = '0';
-                    setTimeout(() => { processedRow.remove(); }, 500);
-                } else {
-                    // Vi är på 'verifikationer.html', uppdatera status
-                    const statusBadge = processedRow.querySelector('.badge');
-                    if (statusBadge) {
-                        statusBadge.textContent = 'processed';
-                        statusBadge.className = 'badge bg-success';
+            if (result.success_ids) {
+                result.success_ids.forEach(id => {
+                    const row = document.getElementById(`trans-row-${id}`);
+                    if (row) {
+                        row.style.transition = 'opacity 0.5s ease';
+                        row.style.opacity = '0';
+                        setTimeout(() => row.remove(), 500);
                     }
-                }
+                });
+            }
+            if (result.errors && result.errors.length > 0) {
+                console.error('Följande transaktioner kunde inte bokföras:', result.errors);
+                alert(`Kunde inte bokföra ${result.errors.length} av ${transactionIds.length} transaktioner. Se konsolen för detaljer.`);
             }
         } catch (error) {
-            showModalError(error.message);
+            console.error('Fel vid massbokföring:', error);
+            alert('Ett allvarligt fel inträffade vid massbokföring.');
+        } finally {
+            batchBookBtn.innerHTML = originalButtonText;
+            updateSelectedCount();
         }
     });
-
-    // 6. Knappar: Moms
-    momsBtnGroup.addEventListener('click', function(event) {
-        if (!event.target.classList.contains('moms-btn') || event.target.disabled) return;
-        if (!activeRowForMoms) {
-            showModalError('Klicka i en debet- eller kredit-ruta (ej 1930) först.');
-            return;
-        }
-        const rate = parseInt(event.target.dataset.rate, 10);
-        const debetInput = activeRowForMoms.querySelector('.debet-input');
-        const kreditInput = activeRowForMoms.querySelector('.kredit-input');
-        const totalAmount = parseFloat(debetInput.value || 0) || parseFloat(kreditInput.value || 0);
-        if (totalAmount === 0) return;
-        const isDebet = parseFloat(debetInput.value || 0) > 0;
-        const momsKonto = getMomsKonto(rate, isDebet);
-        const momsAmount = round(totalAmount * (rate / (100 + rate)), 2);
-        const baseAmount = round(totalAmount - momsAmount, 2);
-        if (isDebet) {
-            debetInput.value = baseAmount;
-            createEntryRow(momsKonto, momsAmount, 0);
-        } else {
-            kreditInput.value = baseAmount;
-            createEntryRow(momsKonto, 0, momsAmount);
-        }
-        calculateTotals();
-        activeRowForMoms = null;
-        disableMomsButtons();
-    });
-
-    // 7. Händelse: Klick i konteringstabellen
-    entriesContainer.addEventListener('click', function(e) {
-        if (e.target.classList.contains('remove-row-btn')) {
-             const row = e.target.closest('tr');
-             const tomselectInstance = row.querySelector('.konto-input').tomselect;
-             if(tomselectInstance) {
-                tomselectInstance.destroy();
-             }
-             row.remove();
-             calculateTotals();
-             return;
-        }
-        if (e.target.tagName === 'INPUT' || e.target.classList.contains('ts-control')) {
-            const row = e.target.closest('tr');
-            if (!row) return;
-            const kontoInput = row.querySelector('.konto-input');
-            const kontoVal = kontoInput ? kontoInput.value : '';
-
-            if (e.target.classList.contains('debet-input') || e.target.classList.contains('kredit-input')) {
-                if (kontoVal !== '1930') {
-                    activeRowForMoms = row;
-                    enableMomsButtons();
-                } else {
-                    activeRowForMoms = null;
-                    disableMomsButtons();
-                }
-            }
-            else if (e.target.classList.contains('konto-input') || e.target.classList.contains('ts-control')) {
-                activeRowForMoms = null;
-                disableMomsButtons();
-            }
-        }
-    });
-
-    // --- Hjälpfunktioner ---
-
+    
     function createEntryRow(konto, debet, kredit) {
         const newRow = rowTemplate.content.cloneNode(true).firstElementChild;
         const kontoInput = newRow.querySelector('.konto-input');
-
-        kontoInput.value = konto;
         newRow.querySelector('.debet-input').value = debet || '';
         newRow.querySelector('.kredit-input').value = kredit || '';
-
-        newRow.querySelectorAll('input[type="number"]').forEach(input => {
-            input.addEventListener('input', calculateTotals);
-        });
-
+        newRow.querySelectorAll('input[type="number"]').forEach(input => input.addEventListener('input', calculateTotals));
         entriesContainer.appendChild(newRow);
 
         if (window.initializeKontoAutocomplete) {
-            setTimeout(() => {
-                const tomselect = window.initializeKontoAutocomplete(kontoInput);
-                if (tomselect) {
-                    tomselect.on('change', calculateTotals);
-                    // Om det är bankkontot, lås det
-                    if (konto === '1930') {
-                        tomselect.lock();
-                    }
-                }
-            }, 0);
-        } else {
-            console.error("initializeKontoAutocomplete is not defined.");
-        }
-    }
-
-    function updateAttachedBilagaList(bilagor) {
-        attachedBilagaList.innerHTML = '';
-        if (bilagor.length === 0) {
-            attachedBilagaList.innerHTML = '<li class="list-group-item text-muted" id="no-attached-bilaga-item"><i>Inga bilagor kopplade.</i></li>';
-        } else {
-            bilagor.forEach(b => {
-                const fileUrl = getStaticUrl(b.url);
-                appendBilagaToList(b.filename, fileUrl, b.id);
-            });
-        }
-    }
-
-    function appendBilagaToList(filename, url, id) {
-        document.getElementById('no-attached-bilaga-item')?.remove();
-        const li = document.createElement('li');
-        li.className = 'list-group-item d-flex justify-content-between align-items-center';
-        li.setAttribute('id', `attached-bilaga-item-${id}`);
-        li.innerHTML = `
-            <a href="#" class="bilaga-preview-link" data-url="${url}">${filename}</a>
-            <button type="button" class="btn btn-warning btn-sm unlink-bilaga-btn" data-bilaga-id="${id}">Koppla från</button>
-        `;
-        attachedBilagaList.appendChild(li);
-    }
-
-    function updateLinkableBilagaList() {
-        linkableBilagaList.innerHTML = '';
-        // Hitta korten från huvud-DOM:en
-        const unassignedCards = document.querySelectorAll('#unassigned-bilagor-list .card');
-
-        if (unassignedCards.length === 0) {
-            linkableBilagaList.innerHTML = '<li class="list-group-item text-muted" id="no-bilagor-in-inbox"><i>Inkorgen är tom.</i></li>';
-            return;
-        }
-
-        unassignedCards.forEach(card => {
-            const bilagaId = card.id.replace('bilaga-card-', '');
-            const link = card.querySelector('a');
-            const editBtn = card.querySelector('.edit-metadata-btn');
-            if (!link || !editBtn) return;
-
-            const filename = link.textContent.trim();
-            const url = link.dataset.url;
-
-            const total = editBtn.dataset.bruttoAmount;
-            // Använd 'suggestedKonto' för att hämta namnet
-            const kontoNum = editBtn.dataset.suggestedKonto;
-            const typ = KONTOPLAN[kontoNum] || ''; // Hämta namn från KONTOPLAN
-
-            let displayText = filename;
-            if (typ && total) {
-                displayText = `${typ} - ${total} SEK`;
-            } else if (total) {
-                displayText = `${filename} - ${total} SEK`;
-            } else if (typ) {
-                displayText = `${typ} - (Okänt belopp)`;
+            const tomselect = window.initializeKontoAutocomplete(kontoInput);
+            if (tomselect) {
+                tomselect.setValue(konto);
+                tomselect.on('change', calculateTotals);
+                if (konto === '1930') tomselect.lock();
             }
-
-            const li = document.createElement('li');
-            li.className = 'list-group-item d-flex justify-content-between align-items-center';
-            li.innerHTML = `
-                <span>${displayText}</span>
-                <button type="button" class="btn btn-success btn-sm link-bilaga-btn" 
-                        data-bilaga-id="${bilagaId}" 
-                        data-filename="${filename}" 
-                        data-url="${url}">
-                    Koppla
-                </button>
-            `;
-            linkableBilagaList.appendChild(li);
-        });
+        }
     }
-
-    function getStaticUrl(urlPath) {
-        return urlPath;
-    }
-
+    
     function lockBankRow() {
         entriesContainer.querySelectorAll('tr').forEach(row => {
             const kontoInput = row.querySelector('.konto-input');
             if (kontoInput.value === '1930') {
-                if(kontoInput.tomselect) {
-                    kontoInput.tomselect.lock();
-                } else {
-                    kontoInput.readOnly = true;
-                }
+                if(kontoInput.tomselect) kontoInput.tomselect.lock();
                 row.querySelector('.debet-input').readOnly = true;
                 row.querySelector('.kredit-input').readOnly = true;
                 const removeBtn = row.querySelector('.remove-row-btn');
@@ -439,66 +199,46 @@ document.addEventListener('DOMContentLoaded', function () {
         const diff = totalDebet - totalKredit;
         const diffEl = document.getElementById('total-diff');
         diffEl.textContent = diff.toFixed(2);
+        diffEl.className = Math.abs(diff) < 0.01 && totalDebet > 0 ? 'text-success' : 'text-danger';
+        return Math.abs(diff) < 0.01 && totalDebet > 0;
+    }
 
-        if (Math.abs(diff) < 0.01 && (totalDebet > 0 || totalKredit > 0) ) {
-            diffEl.className = 'text-success';
-            return true;
-        } else {
-            diffEl.className = 'text-danger';
-            return false;
+    saveBtn.addEventListener('click', async function() {
+        const entries = Array.from(entriesContainer.querySelectorAll('tr')).map(row => {
+            const kontoInput = row.querySelector('.konto-input');
+            const kontoValue = kontoInput.tomselect ? kontoInput.tomselect.getValue() : kontoInput.value;
+            return {
+                konto: kontoValue,
+                debet: row.querySelector('.debet-input').value || 0,
+                kredit: row.querySelector('.kredit-input').value || 0
+            };
+        }).filter(e => e.konto);
+
+        if (!validateBalance()) {
+            showModalError('Obalans! Debet och Kredit måste vara lika.');
+            return;
         }
-    }
 
-    function showModalError(message) {
-        modalAlert.textContent = message;
-        modalAlert.style.display = 'block';
-    }
+        try {
+            const response = await fetch(`/api/save_entries/${currentTransId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ entries: entries })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Okänt serverfel');
 
-    function enableMomsButtons() {
-        momsBtnGroup.querySelectorAll('button').forEach(btn => btn.disabled = false);
-    }
-
-    function disableMomsButtons() {
-        momsBtnGroup.querySelectorAll('button').forEach(btn => btn.disabled = true);
-    }
-
-    function round(value, decimals) {
-        return Number(Math.round(value + 'e' + decimals) + 'e-' + decimals);
-    }
-
-    function getMomsKonto(rate, isDebet) {
-        if (isDebet) { // Ingående moms (покупка)
-            if (rate === 25) return '2641';
-            if (rate === 12) return '2642';
-            if (rate === 6) return '2643';
-        } else { // Utgående moms (продажа)
-            if (rate === 25) return '2611';
-            if (rate === 12) return '2612';
-            if (rate === 6) return '2613';
-        }
-        return '2641'; // По умолчанию
-    }
-
-    // Ищет номер счета по имени (напр., "Drivmedel" -> "5611")
-    function findKontoByValue(valueToFind) {
-        if (!valueToFind || typeof KONTOPLAN === 'undefined') return null;
-        const lowerValue = valueToFind.toLowerCase();
-        for (const key in KONTOPLAN) {
-            if (KONTOPLAN[key].toLowerCase() === lowerValue) {
-                return key;
+            bokforingModal.hide();
+            const processedRow = document.getElementById(`trans-row-${currentTransId}`);
+            if (processedRow) {
+                processedRow.style.transition = 'opacity 0.5s ease';
+                processedRow.style.opacity = '0';
+                setTimeout(() => processedRow.remove(), 500);
             }
+        } catch (error) {
+            showModalError(error.message);
         }
-        return null;
-    }
+    });
 
-    // Ищет номер счета по ключу (напр., "drivmedel" -> "5611")
-    function findKontoByKey(keyToFind) {
-         if (!keyToFind || typeof ASSOCIATION_MAP === 'undefined') return null;
-         const lowerKey = keyToFind.toLowerCase();
-         // KONTOPLAN и ASSOCIATION_MAP определяются в <script> в HTML
-         if (ASSOCIATION_MAP[lowerKey]) {
-            return ASSOCIATION_MAP[lowerKey];
-         }
-         return null;
-    }
+    addRowBtn.addEventListener('click', () => createEntryRow('', '', ''));
 });

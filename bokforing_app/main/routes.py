@@ -19,7 +19,7 @@ def index():
             )
             db.session.add(new_company)
             db.session.commit()
-            flash(f"Företag '{new_company.name}' skapat.", "success")
+            flash(f"Företag '{new_company.name}' har skapats.", "success")
         except Exception as e:
             db.session.rollback()
             flash(f"Fel vid skapande av företag: {e}", "danger")
@@ -32,7 +32,6 @@ def index():
 @bp.route('/company/<int:company_id>', methods=['GET'])
 def bokforing_page(company_id):
     company = Company.query.get_or_404(company_id)
-    # Anropa Service Layer
     transactions, unassigned_bilagor = booking_service.get_company_data(company_id)
 
     return render_template(
@@ -48,7 +47,6 @@ def bokforing_page(company_id):
 @bp.route('/company/<int:company_id>/verifikationer', methods=['GET'])
 def verifikationer_page(company_id):
     company = Company.query.get_or_404(company_id)
-    # Anropa Service Layer
     transactions = booking_service.get_verifikationer(company_id)
 
     return render_template(
@@ -63,7 +61,6 @@ def verifikationer_page(company_id):
 @bp.route('/company/<int:company_id>/bilagor', methods=['GET'])
 def bilagor_page(company_id):
     company = Company.query.get_or_404(company_id)
-    # Anropa Service Layer
     all_bilagor = booking_service.get_all_bilagor(company_id)
 
     return render_template(
@@ -73,3 +70,8 @@ def bilagor_page(company_id):
         kontoplan=KONTOPLAN,
         association_map=ASSOCIATION_MAP
     )
+
+@bp.route('/ai_settings_page', methods=['GET'])
+def ai_settings_page():
+    """Sidan för att hantera AI-inställningar."""
+    return render_template('ai_settings.html', kontoplan=KONTOPLAN)

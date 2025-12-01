@@ -1,51 +1,72 @@
+import codecs
 from datetime import datetime
-from bokforing_app.models import Company, BankTransaction
-from bokforing_app.services.accounting_config import KONTOPLAN
+from bokforing_app.models import Company, BankTransaction, Konto
+from bokforing_app import db
 
 
 def generate_sie_content(company_id):
     company = Company.query.get_or_404(company_id)
     transactions = BankTransaction.query.filter_by(
-        company_id=company_id
+        company_id=company_id,
+        status='processed'
     ).order_by(BankTransaction.bokforingsdag).all()
 
     if not transactions:
-        return None, "Inga transaktioner att exportera"
+        return None, "Inga bokförda transaktioner att exportera."
 
-    first_date = transactions[0].bokforingsdag
-    year_start = first_date.strftime('%Y') + '0101'
-    year_end = first_date.strftime('%Y') + '1231'
+    all_dates = [t.bokforingsdag for t in transactions]
+    min_date = min(all_dates)
+    
+    financial_year_start = datetime(min_date.year, 1, 1)
+    financial_year_end = datetime(min_date.year, 12, 31)
 
-    konton = set(entry.konto for t in transactions for entry in t.entries)
+    used_konto_nrs = set()
+    for trans in transactions:
+        for entry in trans.entries:
+            used_konto_nrs.add(entry.konto)
 
-    sie_data = [
-        '#FLAGGA 0',
-        '#PROGRAM "CSV-to-SIE App" 1.0',
-        '#FORMAT PC8',
-        f'#GEN {datetime.now().strftime("%Y%m%d")} "Admin"',
-        '#SIETYP 4',
-        f'#FNAMN "{company.name}"',
-        f'#ORGNR {company.org_nummer}',
-        f'#ADRESS "" "{company.gata}" "{company.postkod} {company.ort}" ""',
-        f'#RAR 0 {year_start} {year_end}'
-    ]
+    konto_descriptions = {k.konto_nr: k.beskrivning for k in Konto.query.filter(Konto.konto_nr.in_(used_konto_nrs)).all()}
 
-    for konto_nr in sorted(list(konton)):
-        konto_namn = KONTOPLAN.get(konto_nr, f"Okänt konto {konto_nr}")
-        sie_data.append(f'#KONTO {konto_nr} "{konto_namn}"')
+    sie_lines = []
 
-    ver_nr = 1
+    sie_lines.append('#FLAGGA 0')
+    sie_lines.append(f'#PROGRAM "Csv-to-Sie App" 1.0')
+    sie_lines.append('#FORMAT PC8')
+    sie_lines.append(f'#GEN {datetime.now().strftime("%Y%m%d")} "CsvToSie"')
+    sie_lines.append('#SIETYP 4')
+    sie_lines.append(f'#FNAMN "{company.name}"')
+    sie_lines.append(f'#ORGNR {company.org_nummer}')
+    address_line = f'#ADRESS "{company.gata}" "" "{company.postkod} {company.ort}" ""'
+    sie_lines.append(address_line)
+    sie_lines.append(f'#RAR 0 {financial_year_start.strftime("%Y%m%d")} {financial_year_end.strftime("%Y%m%d")}')
+    sie_lines.append('#VALUTA SEK')
+    sie_lines.append('#KPTYP BAS95')
+
+    for konto_nr in sorted(list(used_konto_nrs)):
+        konto_namn = konto_descriptions.get(konto_nr, f"Okänt konto {konto_nr}")
+        sie_lines.append(f'#KONTO {konto_nr} "{konto_namn}"')
+
+    ver_nr_counter = 1
     for trans in transactions:
         ver_date = trans.bokforingsdag.strftime('%Y%m%d')
-        ver_text = str(trans.referens).replace('"', '')
+        ver_text = trans.referens.replace('"', "'").strip() if trans.referens else f"Transaktion {trans.id}"
+        if not ver_text: ver_text = f"Transaktion {trans.id}"
 
-        sie_data.append(f'#VER "B" {ver_nr} {ver_date} "{ver_text}"')
-        sie_data.append('{')
+        sie_lines.append(f'#VER "A" {ver_nr_counter} {ver_date} "{ver_text}" {{')
+        
         for entry in trans.entries:
             belopp = entry.debet if entry.debet > 0 else -entry.kredit
-            if belopp != 0.0:
-                sie_data.append(f'#TRANS {entry.konto} {{}} {belopp:.2f}')
-        sie_data.append('}')
-        ver_nr += 1
+            formatted_belopp = f"{belopp:.2f}".replace(',', '.')
+            trans_text = ver_text
+            sie_lines.append(f'#TRANS {entry.konto} {{}} {formatted_belopp} "{trans_text}"')
+        
+        sie_lines.append('}')
+        ver_nr_counter += 1
 
-    return "\r\n".join(sie_data), None
+    sie_content_str = "\n".join(sie_lines)
+    
+    try:
+        encoded_content = codecs.encode(sie_content_str, 'cp437')
+        return encoded_content, None
+    except UnicodeEncodeError as e:
+        return None, f"Fel vid kodning av SIE-fil (ogiltigt tecken): {e}. Kontrollera referenstexter för ovanliga tecken."

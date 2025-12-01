@@ -5,50 +5,55 @@
 
     <h2>Bokföring: {{ company.name }}</h2>
 
-
-    <div class="card bg-light my-4">
-        <div class="card-body">
-            <h5 class="card-title">Ladda upp ny CSV (Banktransaktioner)</h5>
-            <form action="{{ url_for('api.upload_csv', company_id=company.id) }}" method="POST"
-                  enctype="multipart/form-data">
-                <div class="input-group">
-                    <input type="file" class="form-control" name="csv_file" accept=".csv" required>
-                    <button class="btn btn-primary" type="submit">Ladda upp CSV</button>
-                </div>
-            </form>
+    <div class="d-flex justify-content-between align-items-center my-4">
+        <div class="card bg-light flex-grow-1 me-3">
+            <div class="card-body">
+                <h5 class="card-title">Ladda upp ny CSV (Banktransaktioner)</h5>
+                <form action="{{ url_for('api.upload_csv', company_id=company.id) }}" method="POST"
+                      enctype="multipart/form-data">
+                    <div class="input-group">
+                        <input type="file" class="form-control" name="csv_file" accept=".csv" required>
+                        <button class="btn btn-primary" type="submit">Ladda upp CSV</button>
+                    </div>
+                </form>
+            </div>
         </div>
+        <a href="{{ url_for('main.ai_settings_page') }}" class="btn btn-info">
+            <i class="bi bi-robot"></i> AI-inställningar
+        </a>
     </div>
 
     <div class="row mt-3">
-
-        <div class="col-md-7">
+        <div class="col-md-12">
             <h3>Obearbetade transaktioner</h3>
+
+            <div class="mb-3">
+                <button id="batch-book-btn" class="btn btn-success" disabled>
+                    Bokför markerade med AI (<span id="selected-count">0</span>)
+                </button>
+            </div>
+
             <div class="table-responsive">
                 <table class="table table-hover">
                     <thead>
                     <tr>
+                        <th><input type="checkbox" id="select-all-checkbox"></th>
                         <th data-sort-index="0" data-sort-type="date" style="cursor: pointer;">Datum</th>
                         <th data-sort-index="1" data-sort-type="text" style="cursor: pointer;">Referens</th>
                         <th data-sort-index="2" data-sort-type="number" style="cursor: pointer;">Belopp</th>
                         <th data-sort-index="3" data-sort-type="text" style="cursor: pointer;">Konton</th>
                         <th data-sort-index="4" data-sort-type="text" style="cursor: pointer;">Status</th>
-                        <th>Bilaga</th>
+                        <th>Åtgärd</th>
                     </tr>
                     </thead>
                     <tbody id="transactions-table-body">
                     {% for trans in transactions %}
-                        <tr id="trans-row-{{ trans.id }}" class="transaction-row" style="cursor: pointer;"
-                            data-bs-toggle="modal"
-                            data-bs-target="#bokforingModal"
-                            data-trans-id="{{ trans.id }}"
-                            data-referens="{{ trans.referens }}"
-                            data-amount="{{ '%.2f'|format(trans.belopp) }}"
-                            data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}">
-
-                            <td>{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
-                            <td>{{ trans.referens }}</td>
-                            <td>{{ "%.2f"|format(trans.belopp) }}</td>
-                            <td>
+                        <tr id="trans-row-{{ trans.id }}" class="transaction-row" style="cursor: pointer;">
+                            <td><input type="checkbox" class="transaction-checkbox" data-trans-id="{{ trans.id }}"></td>
+                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
+                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">{{ trans.referens }}</td>
+                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">{{ "%.2f"|format(trans.belopp) }}</td>
+                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">
                                 {% for entry in trans.entries %}
                                     {% if entry.konto != '1930' %}
                                         <span class="badge bg-light text-dark" style="border: 1px solid #ccc;"
@@ -58,69 +63,16 @@
                                     {% endif %}
                                 {% endfor %}
                             </td>
-                            <td><span class="badge bg-warning text-dark">{{ trans.status }}</span></td>
+                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}"><span class="badge bg-warning text-dark">{{ trans.status }}</span></td>
                             <td>
-                                {% if trans.attachments|length > 0 %}
-                                    <span class="badge bg-secondary">{{ trans.attachments|length }} bilaga(or)</span>
-                                {% else %}
-                                    <span class="badge bg-light text-dark">Inga bilagor</span>
-                                {% endif %}
+                                <button class="btn btn-outline-primary btn-sm ask-ai-btn" data-trans-id="{{ trans.id }}" title="Fråga AI om förslag">
+                                    <i class="bi bi-robot"></i> AI
+                                </button>
                             </td>
                         </tr>
                     {% endfor %}
                     </tbody>
                 </table>
-            </div>
-        </div>
-        <div class="col-md-5">
-            <h3>Bilaga-inkorg</h3>
-
-            <form id="multi-bilaga-form" class="mb-3">
-                <label for="multi_bilaga_files" class="form-label">Ladda upp nya bilagor (PDF, PNG, JPG)</label>
-                <input class="form-control" type="file" id="multi_bilaga_files" name="files" multiple>
-                <button type="submit" class="btn btn-primary btn-sm mt-2" id="multi-upload-btn">Ladda upp Bilagor
-                </button>
-                <div id="multi-upload-spinner" class="spinner-border spinner-border-sm ms-2" role="status"
-                     style="display: none;">
-                    <span class="visually-hidden">Laddar...</span>
-                </div>
-            </form>
-
-            <div id="unassigned-bilagor-list"
-                 style="max-height: 600px; overflow-y: auto; border: 1px solid #eee; padding: 10px;">
-                {% if not unassigned_bilagor %}
-                    <p id="no-bilagor-in-inbox" class="text-muted">Inkorgen är tom.</p>
-                {% endif %}
-                {% for bilaga in unassigned_bilagor %}
-                    <div class="card card-body mb-2" id="bilaga-card-{{ bilaga.id }}">
-                        <a href="#" class="bilaga-preview-link"
-                           data-url="{{ url_for('static', filename='uploads/' ~ bilaga.filepath|replace('\\', '/') ) }}">                        {{ bilaga.filename }}
-                        </a>
-                        <div class="bilaga-card-info" style="font-size: 0.9em;">
-                            {% set brutto = bilaga.brutto_amount %}
-                            {% set date = bilaga.bilaga_date.strftime('%Y-%m-%d') if bilaga.bilaga_date else None %}
-                            {% set kontoName = kontoplan.get(bilaga.suggested_konto) %}
-
-                            {% if date %}<strong>Datum:</strong> {{ date }}{% endif %}
-                            {% if brutto %} | <strong>Belopp:</strong> {{ "%.2f"|format(brutto) }} SEK{% endif %}
-                            {% if kontoName %} | <strong>Konto:</strong> {{ kontoName }}{% endif %}
-                            {% if not date and not brutto and not kontoName %}
-                                <small class="text-muted">Status: unassigned</small>
-                            {% endif %}
-                        </div>
-                        <button class="btn btn-secondary btn-sm mt-2 edit-metadata-btn"
-                                data-bs-toggle="modal"
-                                data-bs-target="#bilagaModal"
-                                data-bilaga-id="{{ bilaga.id }}"
-                                data-bilaga-date="{{ bilaga.bilaga_date.strftime('%Y-%m-%d') if bilaga.bilaga_date else '' }}"
-                                data-brutto-amount="{{ bilaga.brutto_amount if bilaga.brutto_amount else '' }}"
-                                data-netto-amount="{{ bilaga.netto_amount if bilaga.netto_amount else '' }}"
-                                data-moms-amount="{{ bilaga.moms_amount if bilaga.moms_amount else '' }}"
-                                data-suggested-konto="{{ bilaga.suggested_konto if bilaga.suggested_konto else '' }}">
-                            Redigera info
-                        </button>
-                    </div>
-                {% endfor %}
             </div>
         </div>
     </div>
@@ -133,7 +85,7 @@
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="bokforingModalLabel">Bokför transaktion</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
                 </div>
 
                 <div class="modal-body">
@@ -148,12 +100,7 @@
                     <h6>Kopplade Bilagor</h6>
                     <ul id="bilaga-list" class="list-group list-group-flush mb-3">
                     </ul>
-                    <div id="link-bilaga-section">
-                        <h6>Koppla från inkorg</h6>
-                        <div id="link-bilaga-list" class="list-group" style="max-height: 150px; overflow-y: auto;">
-                        </div>
-                    </div>
-
+                    
                     <hr>
 
                     <div class="mb-3">
@@ -194,7 +141,7 @@
                                                class="form-control form-control-sm kredit-input" placeholder="0.00">
                                     </td>
                                     <td>
-                                        <button type="button" class="btn btn-danger btn-sm remove-row-btn">X</button>
+                                        <button type="button" class="btn btn-danger btn-sm remove-row-btn" title="Ta bort rad">X</button>
                                     </td>
                                 </tr>
                             </template>
@@ -224,44 +171,6 @@
         </div>
     </div>
 
-    <div class="modal fade" id="bilagaModal" tabindex="-1" aria-labelledby="bilagaModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="bilagaModalLabel">Redigera info för Bilaga</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="bilaga-metadata-form">
-                        <input type="hidden" id="metadata-bilaga-id">
-                        <div class="mb-3">
-                            <label for="metadata-bilaga-date" class="form-label">Fakturadatum</label>
-                            <input type="date" class="form-control" id="metadata-bilaga-date">
-                        </div>
-                        <div class="mb-3">
-                            <label for="metadata-total-amount" class="form-label">Totalbelopp (Brutto)</label>
-                            <input type="number" step="0.01" class="form-control" id="metadata-total-amount"
-                                   placeholder="0.00">
-                        </div>
-                        <div class="mb-3">
-                            <label for="metadata-moms-amount" class="form-label">Momsbelopp</label>
-                            <input type="number" step="0.01" class="form-control" id="metadata-moms-amount"
-                                   placeholder="0.00">
-                        </div>
-                        <div class="mb-3">
-                            <label for="metadata-suggested-konto" class="form-label">Föreslaget Konto
-                                (Kostnad/Intäkt)</label>
-                            <input type="text" id="metadata-suggested-konto" placeholder="Välj konto...">
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
-                    <button type="button" class="btn btn-primary" id="save-metadata-btn">Spara info</button>
-                </div>
-            </div>
-        </div>
-    </div>
 {% endblock %}
 
 
