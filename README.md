@@ -1,138 +1,137 @@
-# Техническая документация проекта "Csv_to_sie"
+# Teknisk dokumentation för projektet "Csv_to_sie"
 
-## 1. Обзор проекта
+## 1. Översikt över projektet
 
-**Csv_to_sie** — это веб-приложение, разработанное на Flask, для ведения бухгалтерского учёта. Основная цель приложения — упростить процесс обработки и учёта финансовых документов (квитанций, счетов-фактур) и банковских выписок (CSV), их загрузки, анализа и последующей проводки в соответствии с планом счетов.
+**Csv_to_sie** är ett webbapplikation utvecklat i Flask för bokföring. Huvudsyftet med applikationen är att förenkla processen för bearbetning och redovisning av finansiella dokument (kvitton, fakturor) och bankutdrag (CSV), deras laddning, analys och efterföljande bokföring i enlighet med kontoplanen.
 
-Ключевые возможности:
-- Управление несколькими компаниями.
-- Загрузка и хранение финансовых документов (PDF, JPG, PNG).
-- **Обработка CSV-файлов с банковскими транзакциями.**
-- Интерактивный интерфейс для просмотра, редактирования метаданных и проводки документов.
-- Встроенный просмотрщик PDF с функциями навигации и масштабирования на базе **PDF.js**.
-- Автоматическое предложение счетов на основе правил ассоциации.
-- Преобразование данных в формат SIE (стандартный формат для импорта/экспорта бухгалтерских данных в Швеции).
+Viktiga funktioner:
+- Hantering av flera företag.
+- Ladda upp och lagra finansiella dokument (PDF, JPG, PNG).
+- **Bearbetning av CSV-filer med banktransaktioner.**
+- Interaktivt gränssnitt för visning, redigering av metadata och bokföring av dokument.
+- Inbyggd PDF-visare med navigations- och zoomfunktioner baserat på **PDF.js**.
+- Automatiska förslag på konton baserat på associationsregler.
+- Konvertering av data till SIE-format (standardformat för import/export av bokföringsdata i Sverige).
 
-## 2. Технический стек
+## 2. Teknisk stack
 
-- **Бэкенд:**
-  - **Язык:** Python 3
-  - **Фреймворк:** Flask
-  - **База данных:** Flask-SQLAlchemy (предположительно, на основе структуры проекта)
-  - **Обработка данных:** Pandas
+- **Backend:**
+  - **Språk:** Python 3
+  - **Ramverk:** Flask
+  - **Databas:** Flask-SQLAlchemy (baserat på projektets struktur)
+  - **Databehandling:** Pandas
 
-- **Фронтенд:**
-  - **HTML/CSS:** Шаблонизатор Jinja2, фреймворк Bootstrap 5.
+- **Frontend:**
+  - **HTML/CSS:** Mallningsverktyget Jinja2, ramverket Bootstrap 5.
   - **JavaScript:**
-    - Нативный JavaScript (ES6 Modules).
-    - **PDF.js** (локальная версия `5.4.394-dist`) для рендеринга PDF.
-    - **Tom-select** для автодополнения в полях выбора счетов.
+    - Inbyggd JavaScript (ES6 Modules).
+    - **PDF.js** (lokal version `5.4.394-dist`) för rendering av PDF.
+    - **Tom-select** för autouppfyllning i fält för konto-val.
 
-- **Окружение:**
-  - **Виртуальное окружение:** `venv`
-  - **Система контроля версий:** Git
+- **Miljö:**
+  - **Virtuell miljö:** `venv`
+  - **Versionshanteringssystem:** Git
 
-## 3. Структура проекта
+## 3. Projektstruktur
 
 ```
 /
-├── bokforing_app/            # Основной пакет приложения
-│   ├── api/                  # Модули для API эндпоинтов
-│   ├── services/             # Бизнес-логика (работа с PDF, CSV, проводки)
-│   ├── static/               # Статические файлы
+├── bokforing_app/            # Huvudpaketet för applikationen
+│   ├── api/                  # Moduler för API-endpunkter
+│   ├── services/             # Affärslogik (hantering av PDF, CSV, bokföring)
+│   ├── static/               # Statiska filer
 │   │   ├── css/
 │   │   ├── js/
-│   │   │   ├── bilagaPage.js         # Логика страницы "Bilagor"
-│   │   │   ├── kontoAutocomplete.js  # Логика автодополнения счетов
-│   │   │   └── pdfjs-5.4.394-dist/ # Локальная библиотека PDF.js
-│   │   └── uploads/            # Загруженные пользователем файлы
-│   ├── templates/            # HTML-шаблоны (Jinja2)
-│   │   ├── bilagor.html        # Страница для работы с документами
-│   │   └── base.html           # Базовый шаблон
-│   ├── __init__.py           # Инициализация Flask-приложения
-│   └── models.py             # Модели базы данных (SQLAlchemy)
+│   │   │   ├── bilagaPage.js         # Logik för sidan "Bilagor"
+│   │   │   ├── kontoAutocomplete.js  # Logik för autouppfyllning av konton
+│   │   │   └── pdfjs-5.4.394-dist/ # Lokal bibliotek för PDF.js
+│   │   └── uploads/            # Uppladdade filer från användaren
+│   ├── templates/            # HTML-mallar (Jinja2)
+│   │   ├── bilagor.html        # Sida för arbete med dokument
+│   │   └── base.html           # Bas-mall
+│   ├── __init__.py           # Initiering av Flask-applikationen
+│   └── models.py             # Databasmodeller (SQLAlchemy)
 │
-├── instance/                 # Файлы инстанса (например, SQLite БД)
-├── venv/                     # Виртуальное окружение
-└── README.md                 # Эта документация
+├── instance/                 # Instansfiler (t.ex. SQLite-databas)
+├── venv/                     # Virtuell miljö
+└── README.md                 # Denna dokumentation
 ```
 
-## 4. Установка и запуск
+## 4. Installation och körning
 
-1.  **Клонировать репозиторий:**
+1.  **Klona repositoryn:**
     ```bash
     git clone <repository_url>
     cd Csv_to_sie
     ```
 
-2.  **Создать и активировать виртуальное окружение:**
+2.  **Skapa och aktivera virtuell miljö:**
     ```bash
     python3 -m venv venv
-    source venv/bin/activate  # Для macOS/Linux
-    # или
-    venv\Scripts\activate     # Для Windows
+    source venv/bin/activate  # För macOS/Linux
+    # eller
+    venv\Scripts\activate     # För Windows
     ```
 
-3.  **Установить зависимости:**
-    (Предполагается наличие файла `requirements.txt`)
+3.  **Installera beroenden:**
+    (Antas att filen `requirements.txt` finns)
     ```bash
     pip install -r requirements.txt
     ```
-    *Если файла нет, основные зависимости: `Flask`, `Flask-SQLAlchemy`, `Flask-Migrate`, `pandas`.*
+    *Om filen saknas, huvudberoenden: `Flask`, `Flask-SQLAlchemy`, `Flask-Migrate`, `pandas`.*
 
-4.  **Инициализировать и применить миграции базы данных:**
+4.  **Initiera och tillämpa databas-migreringar:**
     ```bash
     flask db init
     flask db migrate -m "Initial migration."
     flask db upgrade
     ```
 
-5.  **Запустить приложение:**
+5.  **Kör applikationen:**
     ```bash
     flask run
     ```
-    Приложение будет доступно по адресу `http://127.0.0.1:5000`.
+    Applikationen kommer att vara tillgänglig på adressen `http://127.0.0.1:5000`.
 
-## 5. Обработка CSV-файлов
+## 5. Bearbetning av CSV-filer
 
-Система позволяет загружать CSV-файлы с банковскими транзакциями для их автоматической обработки и создания бухгалтерских записей.
+Systemet tillåter uppladdning av CSV-filer med banktransaktioner för automatisk bearbetning och skapande av bokförings poster.
 
-- **Эндпоинт:** `POST /api/company/<int:company_id>/upload_csv`
-- **Сервис:** `booking_service.process_csv_upload`
+- **Endpunkt:** `POST /api/company/<int:company_id>/upload_csv`
+- **Tjänst:** `booking_service.process_csv_upload`
 
-### Требования к формату CSV:
-- **Кодировка:** `latin-1`
-- **Разделитель полей:** точка с запятой (`;`)
-- **Десятичный разделитель:** запятая (`,`)
-- **Заголовки:** Ожидается, что данные начинаются со второй строки (`header=1`).
-- **Ключевые колонки:** `Bokföringsdag`, `Insättning/Uttag`, `Referens`.
+### Krav på CSV-format:
+- **Kodning:** `latin-1`
+- **Fältskilltecken:** semikolon (`;`)
+- **Decimaltecken:** komma (`,`)
+- **Rubriker:** Data förväntas börja från andra raden (`header=1`).
+- **Viktiga kolumner:** `Bokföringsdag`, `Insättning/Uttag`, `Referens`.
 
-### Логика обработки:
-1.  Файл читается с помощью библиотеки **Pandas**.
-2.  Для каждой строки в файле создается запись `BankTransaction`.
-3.  На основе суммы (`Insättning/Uttag`) и текста справки (`Referens`) определяется контр-счет с помощью функции `get_contra_account`.
-4.  Автоматически создаются две проводки (`BookkeepingEntry`): одна для банковского счета (`1930`), другая для контр-счета, обеспечивая двойную запись.
+### Bearbetningslogik:
+1.  Filen läses med biblioteket **Pandas**.
+2.  För varje rad i filen skapas en post `BankTransaction`.
+3.  Baserat på belopp (`Insättning/Uttag`) och referenstext (`Referens`) bestäms motkonto med hjälp av funktionen `get_contra_account`.
+4.  Automatiskt skapas två bokföringsposter (`BookkeepingEntry`): en för bankkontot (`1930`), en för motkontot, vilket säkerställer dubbel bokföring.
 
-## 6. Ключевые API эндпоинты
+## 6. Viktiga API-endpunkter
 
-Все эндпоинты находятся в пакете `bokforing_app/api/`.
+Alla endpunkter finns i paketet `bokforing_app/api/`.
 
 - `POST /api/company/<int:company_id>/multi_upload_bilagor`
-  - **Назначение:** Массовая загрузка файлов (документов).
-  - **Тело запроса:** `FormData` с файлами в поле `files`.
-  - **Ответ:** JSON-массив с информацией о загруженных файлах.
+  - **Syfte:** Massuppladdning av filer (dokument).
+  - **Request-kropp:** `FormData` med filer i fältet `files`.
+  - **Svar:** JSON-array med information om uppladdade filer.
 
 - `POST /api/bilaga/<int:bilaga_id>/metadata`
-  - **Назначение:** Сохранение обновлённых метаданных документа.
-  - **Тело запроса:** JSON с полями документа (например, `fakturadatum`, `saljare_namn` и т.д.).
-  - **Ответ:** JSON с сообщением об успехе или ошибке.
+  - **Syfte:** Spara uppdaterade metadata för dokumentet.
+  - **Request-kropp:** JSON med dokumentfält (t.ex. `fakturadatum`, `saljare_namn` osv.).
+  - **Svar:** JSON med meddelande om framgång eller fel.
 
 - `POST /api/bilaga/<int:bilaga_id>/bokfor`
-  - **Назначение:** Проводка документа с указанными бухгалтерскими записями.
-  - **Тело запроса:** JSON с массивом `entries`, где каждый объект содержит `konto`, `debet`, `kredit`.
-  - **Ответ:** JSON с сообщением об успехе или ошибке.
+  - **Syfte:** Bokför dokument med angivna bokföringsposter.
+  - **Request-kropp:** JSON med array `entries`, där varje objekt innehåller `konto`, `debet`, `kredit`.
+  - **Svar:** JSON med meddelande om framgång eller fel.
 
 - `DELETE /api/bilaga/<int:bilaga_id>`
-  - **Назначение:** Удаление документа.
-  - **Ответ:** JSON с сообщением об успехе.
-```
+  - **Syfte:** Ta bort dokument.
+  - **Svar:** JSON med meddelande om framgång.

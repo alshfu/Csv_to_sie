@@ -1,144 +1,53 @@
 {% extends 'base.html' %}
-{% block title %}Управление фирмами{% endblock %}
+{% block title %}Välj Företag{% endblock %}
 
 {% block content %}
-    <div class="row">
-        <div class="col-md-8">
-            <h2>Список фирм</h2>
+    <h2>Välj eller skapa ett företag</h2>
 
-            {% if not companies %}
-                <p class="text-muted">Фирмы еще не созданы.</p>
-            {% endif %}
-
-            <div class="list-group">
-                {% for company in companies %}
-                    <a href="{{ url_for('main.bokforing_page', company_id=company.id) }}"
-                       class="list-group-item list-group-item-action">
-                        <div class="d-flex w-100 justify-content-between">
-                            <h5 class="mb-1">{{ company.name }}</h5>
-                            <small class="text-muted">{{ company.org_nummer }}</small>
-                        </div>
-                        <p class="mb-1">{{ company.gata }}, {{ company.postkod }} {{ company.ort }}</p>
-                        <small>Перейти к загрузке CSV &rarr;</small>
-                    </a>
-                {% endfor %}
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <h2>Создать фирму</h2>
-
-            <div class="mb-3">
-                <label for="smart_add_pastebin" class="form-label fw-bold">Умное добавление</label>
-                <textarea class="form-control" id="smart_add_pastebin" rows="5"
-                          placeholder="Вставьте сюда блок с данными фирмы, например:
-TMR Bygg & Renovering AB
-559017-1137
-EKBACKEN 3 A
-374 50 Asarum"></textarea>
-                <div class="form-text">Поля ниже заполнятся автоматически.</div>
-            </div>
-
-            <div class="card bg-light">
-                <div class="card-body">
-                    <form action="{{ url_for('main.index') }}" method="POST" id="company-form">
-                        <div class="mb-3">
-                            <label for="name" class="form-label">Företags namn</label>
-                            <input type="text" class="form-control" id="name" name="name" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="org_nummer" class="form-label">Org.nummer</label>
-                            <input type="text" class="form-control" id="org_nummer" name="org_nummer" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="gata" class="form-label">Gata</label>
-                            <input type="text" class="form-control" id="gata" name="gata">
-                        </div>
-                        <div class="mb-3">
-                            <label for="postkod" class="form-label">Postkod</label>
-                            <input type="text" class="form-control" id="postkod" name="postkod">
-                        </div>
-                        <div class="mb-3">
-                            <label for="ort" class="form-label">Ort</label>
-                            <input type="text" class="form-control" id="ort" name="ort">
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">Создать</button>
-                    </form>
+    <div class="list-group my-4">
+        {% for company in companies %}
+            <a href="{{ url_for('main.bokforing_page', company_id=company.id) }}" class="list-group-item list-group-item-action">
+                <div class="d-flex w-100 justify-content-between">
+                    <h5 class="mb-1">{{ company.name }}</h5>
+                    <small>{{ company.org_nummer }}</small>
                 </div>
-            </div>
+                <p class="mb-1">{{ company.gata }}, {{ company.postkod }} {{ company.ort }}</p>
+            </a>
+        {% else %}
+            <div class="list-group-item">Inga företag hittades. Skapa ett nytt nedan.</div>
+        {% endfor %}
+    </div>
+
+    <div class="card bg-light">
+        <div class="card-body">
+            <h5 class="card-title">Skapa nytt företag</h5>
+            <form action="{{ url_for('main.index') }}" method="POST">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="name" class="form-label">Företagsnamn</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="org_nummer" class="form-label">Organisationsnummer</label>
+                        <input type="text" class="form-control" id="org_nummer" name="org_nummer" required>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="gata" class="form-label">Gatuadress</label>
+                    <input type="text" class="form-control" id="gata" name="gata">
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="postkod" class="form-label">Postkod</label>
+                        <input type="text" class="form-control" id="postkod" name="postkod">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="ort" class="form-label">Ort</label>
+                        <input type="text" class="form-control" id="ort" name="ort">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Skapa Företag</button>
+            </form>
         </div>
     </div>
-{% endblock %}
-
-
-{% block scripts %}
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-
-            // Находим все нужные нам поля
-            const pasteBin = document.getElementById('smart_add_pastebin');
-            const nameField = document.getElementById('name');
-            const orgField = document.getElementById('org_nummer');
-            const gataField = document.getElementById('gata');
-            const postkodField = document.getElementById('postkod');
-            const ortField = document.getElementById('ort');
-
-            // Регулярные выражения для шведских данных
-            const orgRegex = /(\d{6}-\d{4})/;
-            const postOrtRegex = /^(\d{3}\s*\d{2})\s+(.+)$/; // Напр. "374 50 Asarum"
-
-            if (pasteBin) {
-                // Слушаем событие 'input' (срабатывает при вставке или печати)
-                pasteBin.addEventListener('input', function () {
-
-                    const text = pasteBin.value;
-                    const lines = text.split('\n')
-                        .map(line => line.trim()) // Убираем пробелы по краям
-                        .filter(line => line.length > 0); // Убираем пустые строки
-
-                    // Сбрасываем значения, чтобы избежать путаницы
-                    let tempName = '';
-                    let tempOrg = '';
-                    let tempGata = '';
-                    let tempPostkod = '';
-                    let tempOrt = '';
-
-                    let unmatchedLines = [];
-
-                    // 1. Проходим по строкам и ищем точные совпадения (OrgNr, Post/Ort)
-                    lines.forEach(line => {
-                        if (orgRegex.test(line)) {
-                            tempOrg = line.match(orgRegex)[1];
-                        } else if (postOrtRegex.test(line)) {
-                            const match = line.match(postOrtRegex);
-                            tempPostkod = match[1].replace(/\s/g, ''); // "374 50" -> "37450"
-                            tempOrt = match[2];
-                        } else {
-                            // Если не опознали, складываем в "оставшиеся"
-                            unmatchedLines.push(line);
-                        }
-                    });
-
-                    // 2. Распределяем оставшиеся строки
-                    // (Обычно это Название и Улица)
-                    if (unmatchedLines.length > 0) {
-                        // Первую оставшуюся строку считаем Названием
-                        tempName = unmatchedLines[0];
-                    }
-                    if (unmatchedLines.length > 1) {
-                        // Вторую оставшуюся строку считаем Улицей
-                        tempGata = unmatchedLines[1];
-                    }
-                    // (Если останется 3+ строки, они будут проигнорированы)
-
-                    // 3. Заполняем поля формы
-                    nameField.value = tempName;
-                    orgField.value = tempOrg;
-                    gataField.value = tempGata;
-                    postkodField.value = tempPostkod;
-                    ortField.value = tempOrt;
-                });
-            }
-        });
-    </script>
 {% endblock %}

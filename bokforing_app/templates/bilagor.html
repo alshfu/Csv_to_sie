@@ -1,257 +1,157 @@
 {% extends 'base.html' %}
+{% block title %}Bilagor - {{ company.name }}{% endblock %}
 
-{# === Заголовок страницы === #}
-{% block title %}Bilaga-inkorg - {{ company.name }}{% endblock %}
-
-{# === Основное содержимое страницы === #}
 {% block content %}
-<h2>Bilaga-inkorg: {{ company.name }}</h2>
-<p class="text-muted">Ladda upp, redigera och bokför dina kvitton/fakturor här.</p>
+    <h2>Bilagor: {{ company.name }}</h2>
 
-<!-- === Форма для загрузки файлов === -->
-<div class="card bg-light my-4">
-    <div class="card-body">
-        <h5 class="card-title">Ladda upp nya bilagor</h5>
-        <form id="multi-bilaga-form" class="mb-3">
-            <label for="multi_bilaga_files" class="form-label">Välj filer (PDF, PNG, JPG)</label>
-            <input class="form-control" type="file" id="multi_bilaga_files" name="files" multiple>
-            <button type="submit" class="btn btn-primary btn-sm mt-2" id="multi-upload-btn">Ladda upp Bilagor</button>
-            <div id="multi-upload-spinner" class="spinner-border spinner-border-sm ms-2" role="status" style="display: none;">
-                <span class="visually-hidden">Laddar...</span>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- === Таблица с квитанциями === -->
-<div class="table-responsive">
-    <table class="table table-hover">
-        <thead>
-            <tr>
-                <th data-sort-index="0" data-sort-type="text" style="cursor: pointer;">Säljare / Filnamn</th>
-                <th data-sort-index="1" data-sort-type="date" style="cursor: pointer;">Fakturadatum</th>
-                <th data-sort-index="2" data-sort-type="number" style="cursor: pointer; white-space: nowrap;">Belopp (Brutto)</th>
-                <th data-sort-index="3" data-sort-type="text" style="cursor: pointer;">Föreslaget Konto</th>
-                <th data-sort-index="4" data-sort-type="text" style="cursor: pointer;">Status</th>
-                <th>Åtgärd</th>
-            </tr>
-        </thead>
-        <tbody id="bilagor-table-body">
-            {% if not all_bilagor %}
-                <tr id="no-bilagor-in-inbox"><td colspan="6" class="text-muted">Inkorgen är tom.</td></tr>
-            {% endif %}
-
-            {% for bilaga in all_bilagor %}
-                <tr id="bilaga-card-{{ bilaga.id }}">
-                    <td>
-                        <strong>{{ bilaga.saljare_namn or bilaga.filename }}</strong>
-                        {% if bilaga.saljare_namn %}
-                            <br><small class="text-muted">{{ bilaga.filename }}</small>
-                        {% endif %}
-                    </td>
-                    <td>{{ bilaga.fakturadatum.strftime('%Y-%m-%d') if bilaga.fakturadatum else '---' }}</td>
-                    <td style="white-space: nowrap;">{{ bilaga.brutto_amount | currency if bilaga.brutto_amount else '---' }}</td>
-                    <td>
-                        {% if bilaga.suggested_konto %}
-                            <span class="badge bg-light text-dark" style="border: 1px solid #ccc;"
-                                  title="{{ bilaga.suggested_konto }}">
-                                {{ kontoplan.get(bilaga.suggested_konto, bilaga.suggested_konto) }}
-                            </span>
-                        {% else %}
-                            ---
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if bilaga.status == 'assigned' %}
-                            <span class="badge bg-success">Bokförd</span>
-                        {% else %}
-                            <span class="badge bg-warning text-dark">Obokförd</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <button class="btn btn-secondary btn-sm edit-metadata-btn"
-                                data-bs-toggle="modal"
-                                data-bs-target="#bokforBilagaModal"
-                                data-url="{{ url_for('static', filename='uploads/' ~ bilaga.filepath|replace('\\', '/') ) }}"
-                                data-bilaga-id="{{ bilaga.id }}"
-                                data-filename="{{ bilaga.saljare_namn or bilaga.filename }}"
-                                data-date="{{ bilaga.fakturadatum.strftime('%Y-%m-%d') if bilaga.fakturadatum else '' }}"
-                                data-brutto="{{ bilaga.brutto_amount if bilaga.brutto_amount else '0.00' }}"
-                                data-netto="{{ bilaga.netto_amount if bilaga.netto_amount else '0.00' }}"
-                                data-moms="{{ bilaga.moms_amount if bilaga.moms_amount else '0.00' }}"
-                                data-konto="{{ bilaga.suggested_konto if bilaga.suggested_konto else '' }}"
-                                data-fakturanr="{{ bilaga.fakturanr or '' }}"
-                                data-ocr="{{ bilaga.ocr or '' }}"
-                                data-forfallodag="{{ bilaga.forfallodag.strftime('%Y-%m-%d') if bilaga.forfallodag else '' }}"
-                                data-saljare-namn="{{ bilaga.saljare_namn or '' }}"
-                                data-saljare-orgnr="{{ bilaga.saljare_orgnr or '' }}"
-                                data-saljare-momsregnr="{{ bilaga.saljare_momsregnr or '' }}"
-                                data-saljare-bankgiro="{{ bilaga.saljare_bankgiro or '' }}"
-                                data-kund-namn="{{ bilaga.kund_namn or '' }}"
-                                data-kund-orgnr="{{ bilaga.kund_orgnr or '' }}"
-                                data-kund-nummer="{{ bilaga.kund_nummer or '' }}"
-                                data-kund-adress="{{ bilaga.kund_adress or '' }}"
-                                data-total-netto="{{ bilaga.total_netto or '' }}"
-                                data-total-moms="{{ bilaga.total_moms or '' }}"
-                                data-total-brutto="{{ bilaga.total_brutto or '' }}"
-                                data-att-betala="{{ bilaga.att_betala or '' }}">
-                            Redigera
-                        </button>
-                        <button class="btn btn-danger btn-sm delete-bilaga-btn" data-bilaga-id="{{ bilaga.id }}">Ta bort</button>
-                    </td>
-                </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-
-<!-- === Модальное окно для редактирования и проводки === -->
-<div class="modal fade" id="bokforBilagaModal" tabindex="-1" aria-labelledby="bokforBilagaModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-fullscreen">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="bokforBilagaModalLabel">Redigera / Bokför Bilaga</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-
-            <div class="modal-body">
-                <div id="bokfor-modal-alert" class="alert alert-danger" style="display: none;" role="alert"></div>
-                <input type="hidden" id="bokfor-bilaga-id">
-
-                <div class="row">
-                    <!-- Левая колонка: Предпросмотр PDF -->
-                    <div class="col-md-7">
-                        <div id="pdf-viewer-container" style="border: 1px solid #ccc; height: 1020px; overflow-y: auto; position: relative;">
-                            <div id="pdf-controls" class="text-center p-2 bg-light" style="position: sticky; top: 0; z-index: 10;">
-                                <button id="pdf-prev" class="btn btn-secondary btn-sm">Föregående</button>
-                                <span class="mx-2">Sida: <span id="pdf-page-num"></span> / <span id="pdf-page-count"></span></span>
-                                <button id="pdf-next" class="btn btn-secondary btn-sm">Nästa</button>
-                                <button id="pdf-zoom-out" class="btn btn-secondary btn-sm ms-3">-</button>
-                                <span class="mx-2">Zoom: <span id="pdf-zoom-percent">100%</span></span>
-                                <button id="pdf-zoom-in" class="btn btn-secondary btn-sm">+</button>
-                            </div>
-                            <div id="pdf-render-area" class="d-flex justify-content-center p-2">
-                                <canvas id="pdf-canvas"></canvas>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Правая колонка: Метаданные и Проводки -->
-                    <div class="col-md-5">
-                        <div class="accordion" id="editBilagaAccordion">
-                            <!-- Секция с основной информацией -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingOne">
-                                    <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" aria-expanded="true" aria-controls="collapseOne">
-                                        Faktura Information
-                                    </button>
-                                </h2>
-                                <div id="collapseOne" class="accordion-collapse collapse show" aria-labelledby="headingOne" data-bs-parent="#editBilagaAccordion">
-                                    <div class="card-body">
-                                        <div class="row g-2 mb-2">
-                                            <div class="col-md-6"><label for="metadata-saljare-namn" class="form-label">Säljare</label><input type="text" class="form-control form-control-sm" id="metadata-saljare-namn"></div>
-                                            <div class="col-md-6"><label for="metadata-saljare-orgnr" class="form-label">Org.Nr</label><input type="text" class="form-control form-control-sm" id="metadata-saljare-orgnr"></div>
-                                        </div>
-                                        <div class="row g-2 mb-2">
-                                            <div class="col-md-6"><label for="metadata-fakturanr" class="form-label">Fakturanr</label><input type="text" class="form-control form-control-sm" id="metadata-fakturanr"></div>
-                                            <div class="col-md-6"><label for="metadata-ocr" class="form-label">OCR</label><input type="text" class="form-control form-control-sm" id="metadata-ocr"></div>
-                                        </div>
-                                        <div class="row g-2 mb-3">
-                                            <div class="col-md-6"><label for="metadata-fakturadatum" class="form-label">Fakturadatum</label><input type="date" class="form-control form-control-sm" id="metadata-fakturadatum"></div>
-                                            <div class="col-md-6"><label for="metadata-forfallodag" class="form-label">Förfallodag</label><input type="date" class="form-control form-control-sm" id="metadata-forfallodag"></div>
-                                        </div>
-                                        <div class="row g-2">
-                                            <div class="col-sm-3"><label for="metadata-total-netto" class="form-label">Netto</label><input type="text" class="form-control form-control-sm" id="metadata-total-netto"></div>
-                                            <div class="col-sm-3"><label for="metadata-total-moms" class="form-label">Moms</label><input type="text" class="form-control form-control-sm" id="metadata-total-moms"></div>
-                                            <div class="col-sm-3"><label for="metadata-total-brutto" class="form-label">Brutto</label><input type="text" class="form-control form-control-sm" id="metadata-total-brutto"></div>
-                                            <div class="col-sm-3"><label for="metadata-att-betala" class="form-label">Att Betala</label><input type="text" class="form-control form-control-sm" id="metadata-att-betala"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Секция с дополнительными деталями -->
-                            <div class="accordion-item">
-                                <h2 class="accordion-header" id="headingTwo">
-                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" aria-expanded="false" aria-controls="collapseTwo">
-                                        Ytterligare Detaljer
-                                    </button>
-                                </h2>
-                                <div id="collapseTwo" class="accordion-collapse collapse" aria-labelledby="headingTwo" data-bs-parent="#editBilagaAccordion">
-                                    <div class="card-body">
-                                        <div class="row g-2">
-                                            <div class="col-md-6"><label for="metadata-saljare-momsregnr" class="form-label">Momsreg.nr</label><input type="text" class="form-control form-control-sm" id="metadata-saljare-momsregnr"></div>
-                                            <div class="col-md-6"><label for="metadata-saljare-bankgiro" class="form-label">Bankgiro</label><input type="text" class="form-control form-control-sm" id="metadata-saljare-bankgiro"></div>
-                                        </div>
-                                         <div class="row g-2 mt-1">
-                                            <div class="col-md-6"><label for="metadata-kund-namn" class="form-label">Kundnamn</label><input type="text" class="form-control form-control-sm" id="metadata-kund-namn"></div>
-                                            <div class="col-md-6"><label for="metadata-kund-orgnr" class="form-label">Kund Org.nr</label><input type="text" class="form-control form-control-sm" id="metadata-kund-orgnr"></div>
-                                        </div>
-                                        <div class="row g-2 mt-1">
-                                            <div class="col-md-6"><label for="metadata-kund-nummer" class="form-label">Kundnummer</label><input type="text" class="form-control form-control-sm" id="metadata-kund-nummer"></div>
-                                            <div class="col-md-6"><label for="metadata-kund-adress" class="form-label">Kund Adress</label><input type="text" class="form-control form-control-sm" id="metadata-kund-adress"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Секция с проводками -->
-                        <div class="card mt-3">
-                            <div class="card-body">
-                                <h5 class="card-title mb-3">Bokföring</h5>
-                                <table class="table table-sm">
-                                    <thead><tr><th>Konto</th><th>Debet</th><th>Kredit</th><th></th></tr></thead>
-                                    <tbody id="bokfor-entries-container">
-                                        <template id="entry-row-template">
-                                            <tr>
-                                                <td><input type="text" class="konto-input" placeholder="Välj konto..."></td>
-                                                <td><input type="number" step="0.01" class="form-control form-control-sm debet-input" placeholder="0.00"></td>
-                                                <td><input type="number" step="0.01" class="form-control form-control-sm kredit-input" placeholder="0.00"></td>
-                                                <td><button type="button" class="btn btn-danger btn-sm remove-row-btn">X</button></td>
-                                            </tr>
-                                        </template>
-                                    </tbody>
-                                    <tfoot>
-                                        <tr><td><strong>Summa:</strong></td><td><strong id="bokfor-total-debet">0.00</strong></td><td><strong id="bokfor-total-kredit">0.00</strong></td><td></td></tr>
-                                        <tr class="table-group-divider"><td colspan="4"></td></tr>
-                                        <tr><td><strong>Differens:</strong></td><td colspan="2"><strong id="bokfor-total-diff" class="text-danger">0.00</strong></td><td></td></tr>
-                                    </tfoot>
-                                </table>
-                                <button type="button" class="btn btn-outline-primary btn-sm" id="bokfor-add-row-btn">Lägg till rad</button>
-                            </div>
-                        </div>
-                    </div>
+    <div class="card bg-light my-4">
+        <div class="card-body">
+            <h5 class="card-title">Ladda upp nya bilagor (PDF, JPG, PNG)</h5>
+            <form id="multi-upload-form" action="{{ url_for('api.multi_upload_bilagor', company_id=company.id) }}" method="POST" enctype="multipart/form-data">
+                <div class="input-group">
+                    <input type="file" class="form-control" name="files" accept=".pdf,.jpg,.jpeg,.png" multiple required>
+                    <button class="btn btn-primary" type="submit">Ladda upp</button>
                 </div>
-            </div>
-
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
-                <button type="button" class="btn btn-info" id="save-metadata-btn">Spara Ändringar</button>
-                <button type="button" class="btn btn-success" id="bokfor-btn">Bokför</button>
-            </div>
+                <div class="progress mt-2" style="display: none;">
+                    <div class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
+            </form>
         </div>
     </div>
-</div>
+
+    <div class="table-responsive mt-4">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Förhandsgranskning</th>
+                    <th>Filnamn</th>
+                    <th>Status</th>
+                    <th>Kopplad till Ver.</th>
+                    <th>Åtgärd</th>
+                </tr>
+            </thead>
+            <tbody id="bilagor-table-body">
+                {% for bilaga in all_bilagor %}
+                    <tr id="bilaga-row-{{ bilaga.id }}">
+                        <td>
+                            <a href="{{ url_for('static', filename='uploads/' + bilaga.filepath) }}" target="_blank">
+                                <i class="bi bi-file-earmark-text" style="font-size: 1.5rem;"></i>
+                            </a>
+                        </td>
+                        <td>{{ bilaga.filename }}</td>
+                        <td>
+                            {% if bilaga.status == 'assigned' %}
+                                <span class="badge bg-success">Kopplad</span>
+                            {% else %}
+                                <span class="badge bg-secondary">Fri</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if bilaga.bank_transaction_id %}
+                                <a href="#">{{ bilaga.bank_transaction_id }}</a>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-outline-danger delete-bilaga-btn" data-bilaga-id="{{ bilaga.id }}" title="Ta bort bilaga">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="5" class="text-center">Inga bilagor har laddats upp.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/pdfjs-5.4.394-dist/build/pdf.mjs') }}" type="module"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadForm = document.getElementById('multi-upload-form');
+    const progressBar = document.querySelector('.progress-bar');
+    const progressContainer = document.querySelector('.progress');
+    const tableBody = document.getElementById('bilagor-table-body');
 
-<script type="module">
-    import { GlobalWorkerOptions, getDocument } from "{{ url_for('static', filename='js/pdfjs-5.4.394-dist/build/pdf.mjs') }}";
-    GlobalWorkerOptions.workerSrc = "{{ url_for('static', filename='js/pdfjs-5.4.394-dist/build/pdf.worker.mjs') }}";
-    
-    window.pdfjsLib = {
-        GlobalWorkerOptions,
-        getDocument
-    };
+    uploadForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(uploadForm);
+        const xhr = new XMLHttpRequest();
 
-    const KONTOPLAN = {{ kontoplan|tojson }};
-    const ASSOCIATION_MAP = {{ association_map|tojson }};
-    const COMPANY_ID = {{ company.id }};
+        xhr.open('POST', uploadForm.action, true);
+
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                const percentComplete = (e.loaded / e.total) * 100;
+                progressBar.style.width = percentComplete + '%';
+                progressBar.textContent = Math.round(percentComplete) + '%';
+                progressContainer.style.display = 'block';
+            }
+        };
+
+        xhr.onload = function() {
+            progressContainer.style.display = 'none';
+            if (xhr.status === 200) {
+                const newFiles = JSON.parse(xhr.responseText);
+                newFiles.forEach(file => {
+                    const newRow = `
+                        <tr id="bilaga-row-${file.id}">
+                            <td>
+                                <a href="${file.url}" target="_blank">
+                                    <i class="bi bi-file-earmark-text" style="font-size: 1.5rem;"></i>
+                                </a>
+                            </td>
+                            <td>${file.filename}</td>
+                            <td><span class="badge bg-secondary">Fri</span></td>
+                            <td>-</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger delete-bilaga-btn" data-bilaga-id="${file.id}" title="Ta bort bilaga">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                    tableBody.insertAdjacentHTML('afterbegin', newRow);
+                });
+            } else {
+                alert('Ett fel inträffade vid uppladdningen.');
+            }
+        };
+
+        xhr.send(formData);
+    });
+
+    tableBody.addEventListener('click', async function(e) {
+        const deleteBtn = e.target.closest('.delete-bilaga-btn');
+        if (!deleteBtn) return;
+
+        const bilagaId = deleteBtn.dataset.bilagaId;
+        if (!confirm('Är du säker på att du vill ta bort denna bilaga permanent?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/bilaga/${bilagaId}`, {
+                method: 'DELETE'
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Ett okänt fel inträffade.');
+            }
+            
+            document.getElementById(`bilaga-row-${bilagaId}`).remove();
+            alert('Bilagan har tagits bort.');
+
+        } catch (error) {
+            console.error('Fel vid borttagning av bilaga:', error);
+            alert(`Kunde inte ta bort bilagan: ${error.message}`);
+        }
+    });
+});
 </script>
-<script src="{{ url_for('static', filename='js/mainTable.js') }}"></script>
-<script src="{{ url_for('static', filename='js/kontoAutocomplete.js') }}"></script>
-<script src="{{ url_for('static', filename='js/bilagaPage.js') }}"></script>
 {% endblock %}
