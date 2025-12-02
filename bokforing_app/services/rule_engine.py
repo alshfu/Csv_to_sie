@@ -16,12 +16,10 @@ def apply_rule(transaction: BankTransaction, rule: Dict[str, Any]) -> List[Dict[
     if not rule or 'entries' not in rule:
         raise ValueError("Ogiltigt regelformat. 'entries' saknas.")
 
-    # Använd det absoluta värdet av beloppet för beräkningar
-    total_amount = abs(transaction.belopp)
-    
-    # Skapa en kontext för eval() som endast innehåller det nödvändiga
+    # Definiera de tillgängliga platshållarna
     eval_context = {
-        'TOTAL': total_amount
+        'ABS_AMOUNT': abs(transaction.belopp),
+        'ORIGINAL_AMOUNT': transaction.belopp
     }
 
     generated_entries = []
@@ -29,6 +27,10 @@ def apply_rule(transaction: BankTransaction, rule: Dict[str, Any]) -> List[Dict[
         try:
             debet_str = entry_template.get('debet', '0')
             kredit_str = entry_template.get('kredit', '0')
+
+            # Ersätt den gamla platshållaren 'TOTAL' för bakåtkompatibilitet
+            debet_str = debet_str.replace('TOTAL', 'ABS_AMOUNT')
+            kredit_str = kredit_str.replace('TOTAL', 'ABS_AMOUNT')
 
             # Evaluera uttrycken på ett säkert sätt
             debet = eval(str(debet_str), {"__builtins__": None}, eval_context)

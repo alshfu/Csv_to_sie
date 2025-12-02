@@ -13,25 +13,58 @@ import os
 # --- API för CSV ---
 @bp.route('/company/<int:company_id>/upload_csv', methods=['POST'])
 def upload_csv(company_id):
-    # ... (oförändrad)
-    if 'csv_file' not in request.files:
-        flash("Ingen fil vald", "danger")
-    else:
-        file = request.files['csv_file']
-        if file.filename != '' and file.filename.endswith('.csv'):
-            try:
-                booking_service.process_csv_upload(file, company_id)
-                flash("CSV-filen har laddats upp!", "success")
-            except Exception as e:
-                db.session.rollback()
-                flash(f"Fel vid bearbetning av CSV: {e}", "danger")
+    if 'csv_file' not in request.files or not request.files['csv_file'].filename:
+        flash("Ingen fil vald.", "danger")
+        return redirect(url_for('main.bokforing_page', company_id=company_id))
+
+    file = request.files['csv_file']
+    if not file.filename.lower().endswith('.csv'):
+        flash("Ogiltig filtyp. Endast .csv-filer är tillåtna.", "danger")
+        return redirect(url_for('main.bokforing_page', company_id=company_id))
+
+    try:
+        stats = booking_service.process_csv_upload(file, company_id)
+        
+        messages = []
+        if stats['new'] > 0:
+            messages.append(f"{stats['new']} nya transaktioner har lagts till i 'Obearbetade'.")
+        if stats['duplicates'] > 0:
+            messages.append(f"{stats['duplicates']} potentiella dubbletter hittades och väntar på din granskning.")
+        
+        if not messages:
+            flash("Inga nya transaktioner att importera hittades i filen.", "info")
         else:
-            flash("Ogiltig filtyp (kräver .csv)", "danger")
+            flash(" ".join(messages), "success")
+
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Ett fel inträffade vid bearbetning av CSV: {e}", "danger")
 
     return redirect(url_for('main.bokforing_page', company_id=company_id))
 
+@bp.route('/transaction/handle_duplicate', methods=['POST'])
+def handle_duplicate():
+    data = request.get_json()
+    trans_id = data.get('id')
+    action = data.get('action')
+
+    transaction = BankTransaction.query.get_or_404(trans_id)
+
+    if transaction.status != 'pending_duplicate':
+        return jsonify({'error': 'Transaktionen är inte en väntande dubblett.'}), 400
+
+    if action == 'approve':
+        transaction.status = 'unprocessed'
+        db.session.commit()
+        return jsonify({'message': 'Transaktionen har godkänts och flyttats till obearbetade.'})
+    elif action == 'reject':
+        db.session.delete(transaction)
+        db.session.commit()
+        return jsonify({'message': 'Transaktionen har raderats.'})
+    else:
+        return jsonify({'error': 'Ogiltig åtgärd.'}), 400
+
 # --- API för Bilagor ---
-# ... (oförändrad sektion)
 @bp.route('/company/<int:company_id>/multi_upload_bilagor', methods=['POST'])
 def multi_upload_bilagor(company_id):
     if 'files' not in request.files:
@@ -66,43 +99,7 @@ def multi_upload_bilagor(company_id):
             
     return jsonify(uploaded_files_data), 200
 
-@bp.route('/bilaga/<int:bilaga_id>/metadata', methods=['POST'])
-def update_bilaga_metadata(bilaga_id):
-    try:
-        booking_service.update_bilaga_metadata_service(bilaga_id, request.json)
-        return jsonify({'message': 'Bilaga uppdaterad'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@bp.route('/bilaga/<int:bilaga_id>/bokfor', methods=['POST'])
-def bokfor_bilaga(bilaga_id):
-    try:
-        entries_data = request.json.get('entries')
-        if not entries_data:
-            return jsonify({'error': 'Inga konteringsrader angivna.'}), 400
-        ver_id = booking_service.bokfor_bilaga_service(bilaga_id, entries_data)
-        return jsonify({'message': 'Bilagan har bokförts!', 'verifikation_id': ver_id}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
-@bp.route('/bilaga/<int:bilaga_id>', methods=['DELETE'])
-def delete_bilaga(bilaga_id):
-    try:
-        bilaga = Bilaga.query.get_or_404(bilaga_id)
-        file_to_delete = os.path.join(current_app.config['UPLOAD_FOLDER'], bilaga.filepath)
-        if os.path.exists(file_to_delete):
-            os.remove(file_to_delete)
-        db.session.delete(bilaga)
-        db.session.commit()
-        return jsonify({'message': 'Bilaga borttagen'}), 200
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
-
 # --- API för Bokföring (Modal & Verifikationer) ---
-# ... (oförändrad sektion)
 @bp.route('/verifikation/<int:trans_id>', methods=['GET'])
 def get_verifikation(trans_id):
     trans = BankTransaction.query.get_or_404(trans_id)
@@ -162,13 +159,16 @@ def update_verifikation(trans_id):
     try:
         if not data.get('bokforingsdag') or not data.get('referens'):
             raise ValueError("Datum och referens är obligatoriska.")
+        
         total_debet = sum(float(e.get('debet', 0)) for e in data['entries'])
         total_kredit = sum(float(e.get('kredit', 0)) for e in data['entries'])
         if abs(total_debet - total_kredit) > 0.01:
             raise ValueError("Obalans! Debet och kredit summerar inte till samma värde.")
+
         trans.bokforingsdag = datetime.datetime.strptime(data['bokforingsdag'], '%Y-%m-%d').date()
         trans.referens = data['referens']
-        trans.belopp = total_debet
+        trans.status = 'processed'
+
         BookkeepingEntry.query.filter_by(bank_transaction_id=trans_id).delete()
         for entry_data in data['entries']:
             new_entry = BookkeepingEntry(
@@ -178,6 +178,7 @@ def update_verifikation(trans_id):
                 kredit=float(entry_data.get('kredit', 0))
             )
             db.session.add(new_entry)
+            
         db.session.commit()
         return jsonify({'message': 'Verifikation uppdaterad!', 'id': trans.id}), 200
     except Exception as e:
@@ -201,12 +202,10 @@ def delete_verifikation(trans_id):
 def ask_gemini_for_suggestion(trans_id):
     transaction = BankTransaction.query.get_or_404(trans_id)
     try:
-        # Steg 1: Leta efter en befintlig regel
         if transaction.referens:
             association = Association.query.filter_by(keyword=transaction.referens.strip()).first()
             if association and association.rule:
                 try:
-                    # Försök att applicera regeln
                     rule_dict = json.loads(association.rule)
                     generated_entries = apply_rule(transaction, rule_dict)
                     return jsonify({
@@ -214,10 +213,8 @@ def ask_gemini_for_suggestion(trans_id):
                         "source": "rule"
                     }), 200
                 except Exception as e:
-                    # Om regeln misslyckas, fall tillbaka till Gemini men logga felet
                     current_app.logger.warning(f"Regel för '{transaction.referens}' misslyckades: {e}. Anropar Gemini.")
-
-        # Steg 2: Om ingen regel finns (eller om den misslyckades), anropa Gemini
+        
         general_rules_setting = Setting.query.filter_by(key='gemini_custom_prompt').first()
         general_rules = general_rules_setting.value if general_rules_setting else ''
         
@@ -226,20 +223,18 @@ def ask_gemini_for_suggestion(trans_id):
         if 'error' in gemini_response:
             return jsonify(gemini_response), 500
             
-        # Steg 3: Spara den nya regeln för framtida bruk
         if transaction.referens and 'rule' in gemini_response:
             keyword = transaction.referens.strip()
             association = Association.query.filter_by(keyword=keyword).first()
             if not association:
-                # Skapa en ny association om den inte finns
                 main_account = next((e['konto'] for e in gemini_response['suggestion']['entries'] if e['konto'] != '1930'), None)
                 if main_account:
                     association = Association(keyword=keyword, konto_nr=main_account)
                     db.session.add(association)
             
-            # Uppdatera/spara regeln som en JSON-sträng
-            association.rule = json.dumps(gemini_response['rule'])
-            db.session.commit()
+            if association:
+                association.rule = json.dumps(gemini_response['rule'])
+                db.session.commit()
 
         return jsonify({
             "suggestion": gemini_response.get('suggestion'),
@@ -256,16 +251,11 @@ def batch_book_with_ai():
     transaction_ids = data.get('transaction_ids', [])
     if not transaction_ids:
         return jsonify({'error': 'Inga transaktioner valda'}), 400
-
     success_ids = []
     errors = []
-
     general_rules_setting = Setting.query.filter_by(key='gemini_custom_prompt').first()
     general_rules = general_rules_setting.value if general_rules_setting else ''
-    
-    # Hämta alla associationer till en dictionary för snabbare lookup
     all_associations = {a.keyword: a for a in Association.query.all()}
-
     for trans_id in transaction_ids:
         db.session.begin_nested()
         try:
@@ -273,27 +263,19 @@ def batch_book_with_ai():
             if not transaction or transaction.status != 'unprocessed':
                 db.session.rollback()
                 continue
-
             entries_data = None
             keyword = transaction.referens.strip() if transaction.referens else None
-            
-            # Försök använda regel först
             if keyword and keyword in all_associations and all_associations[keyword].rule:
                 try:
                     rule_dict = json.loads(all_associations[keyword].rule)
                     entries_data = apply_rule(transaction, rule_dict)
                 except Exception as e:
                     current_app.logger.warning(f"Batch: Regel för '{keyword}' misslyckades: {e}. Anropar Gemini.")
-
-            # Om ingen regel fanns eller misslyckades, anropa Gemini
             if not entries_data:
                 gemini_response = gemini_service.get_bokforing_suggestion_from_gemini(transaction, general_rules, "")
                 if 'error' in gemini_response:
                     raise Exception(gemini_response['error'])
-                
                 entries_data = gemini_response.get('suggestion', {}).get('entries', [])
-                
-                # Spara den nya regeln
                 if keyword and 'rule' in gemini_response:
                     association = all_associations.get(keyword)
                     if not association:
@@ -301,40 +283,28 @@ def batch_book_with_ai():
                         if main_account:
                             association = Association(keyword=keyword, konto_nr=main_account)
                             db.session.add(association)
-                            all_associations[keyword] = association # Uppdatera vår lokala cache
-                    
+                            all_associations[keyword] = association
                     if association:
                         association.rule = json.dumps(gemini_response['rule'])
-
-            # Validera och spara entries
             if not entries_data:
                 raise Exception("Inget förslag kunde genereras.")
-
             BookkeepingEntry.query.filter_by(bank_transaction_id=trans_id).delete()
-            
             total_debet = sum(float(e.get('debet', 0)) for e in entries_data)
             total_kredit = sum(float(e.get('kredit', 0)) for e in entries_data)
-
             if abs(total_debet - total_kredit) > 0.01 or total_debet == 0:
                 raise Exception("Obalans i förslaget")
-
             for entry_data in entries_data:
                 new_entry = BookkeepingEntry(bank_transaction_id=trans_id, konto=entry_data['konto'], debet=float(entry_data.get('debet', 0)), kredit=float(entry_data.get('kredit', 0)))
                 db.session.add(new_entry)
-            
             transaction.status = 'processed'
             db.session.commit()
             success_ids.append(trans_id)
-
         except Exception as e:
             db.session.rollback()
             errors.append({'id': trans_id, 'error': str(e)})
-
     return jsonify({'success_ids': success_ids, 'errors': errors}), 200
 
-
 # --- API för SIE & AI-inställningar ---
-# ... (oförändrad sektion)
 @bp.route('/company/<int:company_id>/generate_sie', methods=['POST'])
 def generate_sie(company_id):
     content, error = sie_service.generate_sie_content(company_id)

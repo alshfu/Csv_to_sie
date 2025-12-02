@@ -33,12 +33,25 @@ def index():
 @bp.route('/company/<int:company_id>', methods=['GET'])
 def bokforing_page(company_id):
     company = Company.query.get_or_404(company_id)
-    transactions, unassigned_bilagor = booking_service.get_company_data(company_id)
+    
+    # Hämta transaktioner för de olika sektionerna
+    unprocessed_transactions = BankTransaction.query.filter_by(
+        company_id=company_id,
+        status='unprocessed'
+    ).order_by(BankTransaction.bokforingsdag.desc()).all()
+
+    pending_duplicates = BankTransaction.query.filter_by(
+        company_id=company_id,
+        status='pending_duplicate'
+    ).order_by(BankTransaction.bokforingsdag.desc()).all()
+
+    unassigned_bilagor = booking_service.get_all_bilagor(company_id)
 
     return render_template(
         'transactions.html',
         company=company,
-        transactions=transactions,
+        transactions=unprocessed_transactions,
+        pending_duplicates=pending_duplicates,
         unassigned_bilagor=unassigned_bilagor,
         kontoplan=KONTOPLAN,
         association_map=ASSOCIATION_MAP
@@ -76,11 +89,9 @@ def bilagor_page(company_id):
 def momsrapport_page(company_id):
     company = Company.query.get_or_404(company_id)
     
-    # Hämta tillgängliga år från databasen
     available_years = db.session.query(extract('year', BankTransaction.bokforingsdag)).distinct().order_by(extract('year', BankTransaction.bokforingsdag).desc()).all()
     available_years = [y[0] for y in available_years if y[0] is not None]
 
-    # Hämta valda filter från request, med standardvärden
     selected_year = request.args.get('year', str(datetime.now().year) if available_years else '', type=int)
     selected_quarter = request.args.get('quarter', '')
     selected_month = request.args.get('month', '')
@@ -118,10 +129,10 @@ def momsrapport_page(company_id):
         for entry in trans.entries:
             if entry.konto in moms_konton:
                 desc = moms_konton[entry.konto]
-                if entry.konto.startswith('261'): # Utgående moms
+                if entry.konto.startswith('261'):
                     moms_data[desc]['utgaende'] += entry.kredit
                     total_utgaende += entry.kredit
-                elif entry.konto.startswith('264'): # Ingående moms
+                elif entry.konto.startswith('264'):
                     moms_data[desc]['ingende'] += entry.debet
                     total_ingende += entry.debet
 

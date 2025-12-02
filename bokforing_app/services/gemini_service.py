@@ -35,7 +35,7 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
             return {"error": f"Kunde inte konfigurera SOCKS5-proxy: {e}"}
 
     kontoplan_str = "\n".join([f"{k} - {v}" for k, v in KONTOPLAN.items()])
-    belopp = abs(transaction.belopp)
+    original_amount = transaction.belopp # Använd det ursprungliga beloppet med tecken
 
     prompt = f"""
     Analysera följande banktransaktion. Svara ENDAST med ett JSON-objekt.
@@ -46,8 +46,9 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
         - Inkludera en `description`.
 
     2.  `rule`: En generell regel för framtida liknande transaktioner.
-        - I regelns `entries`, använd matematiska uttryck med platshållaren `TOTAL` för att representera transaktionsbeloppet.
-        - Exempel för 25% moms: `TOTAL / 1.25` för kostnaden och `TOTAL - (TOTAL / 1.25)` för momsen.
+        - I regelns `entries`, använd matematiska uttryck med platshållaren `ABS_AMOUNT` för att representera transaktionens *absoluta* belopp.
+        - Använd `ORIGINAL_AMOUNT` för att representera transaktionens *ursprungliga* belopp med tecken.
+        - Exempel för 25% moms: `ABS_AMOUNT / 1.25` för kostnaden och `ABS_AMOUNT - (ABS_AMOUNT / 1.25)` för momsen.
         - Uttrycken evalueras i Python, så använd giltig syntax (t.ex. `*` för multiplikation).
         - Inkludera en `description` för regeln.
 
@@ -69,25 +70,49 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
     TRANSKTIONSDATA:
     - Datum: {transaction.bokforingsdag.strftime('%Y-%m-%d')}
     - Referens: "{transaction.referens}"
-    - Belopp: {transaction.belopp} SEK (Absolutbelopp att använda: {belopp})
-    - Bankkonto är ALLTID '1930'.
+    - Ursprungligt Belopp: {original_amount} SEK
 
-    Exempel på svar för ett köp på OKQ8 för 500 SEK:
+    VIKTIGA REGLER FÖR BOKFÖRING:
+    - Bankkontot '1930' ska ALLTID krediteras om Ursprungligt Belopp är negativt (utbetalning).
+    - Bankkontot '1930' ska ALLTID debiteras om Ursprungligt Belopp är positivt (inbetalning).
+    - För andra konton (t.ex. kostnader, intäkter, moms), använd det absoluta värdet av beloppet och tilldela debet/kredit baserat på kontotypen.
+
+    Exempel på svar för ett köp på OKQ8 för -500.41 SEK (utbetalning):
     {{
       "suggestion": {{
         "description": "Köp av drivmedel hos OKQ8",
         "entries": [
-          {{"konto": "5611", "debet": 400.00, "kredit": 0}},
-          {{"konto": "2641", "debet": 100.00, "kredit": 0}},
-          {{"konto": "1930", "debet": 0, "kredit": 500.00}}
+          {{"konto": "5611", "debet": 500.41 / 1.25, "kredit": 0}},
+          {{"konto": "2641", "debet": 500.41 - (500.41 / 1.25), "kredit": 0}},
+          {{"konto": "1930", "debet": 0, "kredit": 500.41}}
         ]
       }},
       "rule": {{
         "description": "Drivmedel (25% moms)",
         "entries": [
-          {{"konto": "5611", "debet": "TOTAL * 0.8", "kredit": "0"}},
-          {{"konto": "2641", "debet": "TOTAL * 0.2", "kredit": "0"}},
-          {{"konto": "1930", "debet": "0", "kredit": "TOTAL"}}
+          {{"konto": "5611", "debet": "ABS_AMOUNT / 1.25", "kredit": "0"}},
+          {{"konto": "2641", "debet": "ABS_AMOUNT - (ABS_AMOUNT / 1.25)", "kredit": "0"}},
+          {{"konto": "1930", "debet": "0", "kredit": "ABS_AMOUNT"}}
+        ]
+      }}
+    }}
+
+    Exempel på svar för en inbetalning på 1000 SEK:
+    {{
+      "suggestion": {{
+        "description": "Försäljning",
+        "entries": [
+          {{"konto": "1930", "debet": 1000.00, "kredit": 0}},
+          {{"konto": "3041", "debet": 0, "kredit": 1000.00 / 1.25}},
+          {{"konto": "2611", "debet": 0, "kredit": 1000.00 - (1000.00 / 1.25)}}
+        ]
+      }},
+      "rule": {{
+        "description": "Försäljning (25% moms)",
+        "entries": [
+          {{"konto": "1930", "debet": "ABS_AMOUNT", "kredit": "0"}},
+          {{"konto": "3041", "debet": "0", "kredit": "ABS_AMOUNT / 1.25"}},
+          {{"konto": "2611", "debet": "0", "kredit": "ABS_AMOUNT - (ABS_AMOUNT / 1.25)"}}
         ]
       }}
     }}

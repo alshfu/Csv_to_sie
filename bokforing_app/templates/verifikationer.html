@@ -2,46 +2,78 @@
 {% block title %}Verifikationer - {{ company.name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Verifikationer: {{ company.name }}</h2>
-        <button id="new-ver-btn" class="btn btn-primary">
-            <i class="bi bi-plus-circle me-2"></i>Skapa ny verifikation
-        </button>
-    </div>
+    <div class="container-fluid py-4">
+        <!-- Header Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2 class="h2 mb-0 fw-bold text-primary">
+                        <i class="bi bi-journal-plus me-2"></i>
+                        Verifikationer: {{ company.name }}
+                    </h2>
+                    <button id="new-ver-btn" class="btn btn-primary btn-lg">
+                        <i class="bi bi-plus-circle me-1"></i>
+                        Skapa ny verifikation
+                    </button>
+                </div>
+            </div>
+        </div>
 
-    <div class="table-responsive">
-        <table class="table table-hover">
-            <thead>
-                <tr>
-                    <th>Ver. ID</th>
-                    <th>Datum</th>
-                    <th>Referens</th>
-                    <th class="text-end">Belopp</th>
-                    <th>Konton</th>
-                </tr>
-            </thead>
-            <tbody id="verifikationer-table-body">
-                {% for trans in transactions %}
-                    <tr id="ver-row-{{ trans.id }}" class="ver-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;">
-                        <td>{{ trans.id }}</td>
-                        <td>{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
-                        <td>{{ trans.referens }}</td>
-                        <td class="text-end">{{ "%.2f"|format(trans.belopp) }}</td>
-                        <td>
-                            {% for entry in trans.entries %}
-                                <span class="badge bg-light text-dark" style="border: 1px solid #ccc;" title="{{ entry.konto }}">
-                                    {{ kontoplan.get(entry.konto, entry.konto) }}
-                                </span>
-                            {% endfor %}
-                        </td>
-                    </tr>
-                {% else %}
-                    <tr>
-                        <td colspan="5" class="text-center">Inga verifikationer hittades.</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <!-- Verifications Table Section -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow-sm border-0">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-striped mb-0 align-middle sortable-table">
+                                <thead class="table-dark">
+                                    <tr>
+                                        <th scope="col" class="sortable" data-sort="id" style="width: 60px;">
+                                            <span>Ver. ID</span>
+                                            <i class="bi bi-arrow-up-down ms-1"></i>
+                                        </th>
+                                        <th scope="col" class="sortable" data-sort="date" style="width: 10ch;">
+                                            <span>Datum</span>
+                                            <i class="bi bi-arrow-up-down ms-1"></i>
+                                        </th>
+                                        <th scope="col" class="text-center" style="width: 200px;">Konton</th>
+                                        <th scope="col" class="text-end sortable" data-sort="amount" style="width: 120px;">
+                                            <span>Belopp</span>
+                                            <i class="bi bi-arrow-up-down ms-1"></i>
+                                        </th>
+                                        <th scope="col" class="sortable" data-sort="ref" style="width: 200px;">
+                                            <span>Referens</span>
+                                            <i class="bi bi-arrow-up-down ms-1"></i>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody id="verifikationer-table-body">
+                                    {% for trans in transactions %}
+                                        <tr id="ver-row-{{ trans.id }}" class="ver-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;" data-id="{{ trans.id }}" data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}" data-ref="{{ trans.referens }}" data-amount="{{ trans.belopp }}">
+                                            <td class="fw-medium">{{ trans.id }}</td>
+                                            <td class="fw-medium">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
+                                            <td class="text-center">
+                                                {% for entry in trans.entries %}
+                                                    <span class="badge bg-secondary text-white me-1 mb-1" style="font-size: 0.75em;" title="{{ entry.konto }} - {{ kontoplan.get(entry.konto, 'Okänt') }}">
+                                                        {{ entry.konto }} - {{ kontoplan.get(entry.konto, entry.konto)|truncate(15, true, '') }}
+                                                    </span>
+                                                {% endfor %}
+                                            </td>
+                                            <td class="text-end fw-bold {% if trans.belopp < 0 %}text-danger{% else %}text-success{% endif %}">{{ "%.2f"|format(trans.belopp) }} kr</td>
+                                            <td>{{ trans.referens }}</td>
+                                        </tr>
+                                    {% else %}
+                                        <tr>
+                                            <td colspan="5" class="text-center py-4 text-muted">Inga verifikationer hittades.</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     {% include '_verifikation_modal.html' %}
@@ -56,6 +88,61 @@ document.addEventListener('DOMContentLoaded', function() {
     const modalForm = document.getElementById('verifikationForm');
     const entriesContainer = document.getElementById('entries-container');
     const tableBody = document.getElementById('verifikationer-table-body');
+
+    // --- Table Sorting Logic ---
+    const sortableHeaders = document.querySelectorAll('.sortable');
+    let sortDirection = {};
+
+    sortableHeaders.forEach(header => {
+        header.addEventListener('click', () => {
+            const sortKey = header.dataset.sort;
+            const currentDir = sortDirection[sortKey] || 'asc';
+            const newDir = currentDir === 'asc' ? 'desc' : 'asc';
+            sortDirection[sortKey] = newDir;
+
+            // Update icons
+            sortableHeaders.forEach(h => {
+                const icon = h.querySelector('i');
+                if (icon) icon.className = 'bi bi-arrow-up-down ms-1';
+            });
+            const clickedIcon = header.querySelector('i');
+            if (clickedIcon) {
+                clickedIcon.className = newDir === 'asc' ? 'bi bi-arrow-up ms-1' : 'bi bi-arrow-down ms-1';
+            }
+
+            // Sort rows
+            const rows = Array.from(tableBody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+                let aVal, bVal;
+                switch (sortKey) {
+                    case 'id':
+                        aVal = parseInt(a.dataset.id);
+                        bVal = parseInt(b.dataset.id);
+                        break;
+                    case 'date':
+                        aVal = a.dataset.date;
+                        bVal = b.dataset.date;
+                        break;
+                    case 'ref':
+                        aVal = a.dataset.ref.toLowerCase();
+                        bVal = b.dataset.ref.toLowerCase();
+                        break;
+                    case 'amount':
+                        aVal = parseFloat(a.dataset.amount);
+                        bVal = parseFloat(b.dataset.amount);
+                        break;
+                    default:
+                        return 0;
+                }
+                if (aVal < bVal) return newDir === 'asc' ? -1 : 1;
+                if (aVal > bVal) return newDir === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            // Reappend rows
+            rows.forEach(row => tableBody.appendChild(row));
+        });
+    });
 
     // Funktion för att skapa en ny rad för en bokföringspost
     function createEntryRow(entry = {}) {
@@ -100,14 +187,14 @@ document.addEventListener('DOMContentLoaded', function() {
         balanceEl.classList.toggle('text-danger', balance.toFixed(2) != '0.00');
         balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
     }
-    
+
     // Funktion för att fylla modalen med data
     function populateModal(data) {
         document.getElementById('modal-trans-id').value = data.id;
         document.getElementById('verifikationModalLabel').textContent = `Redigera verifikation ${data.id}`;
         document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
         document.getElementById('modal-referens').value = data.referens;
-        
+
         entriesContainer.innerHTML = '';
         data.entries.forEach(entry => createEntryRow(entry));
         if (data.entries.length === 0) {
@@ -196,7 +283,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const response = await fetch(`/api/verifikation/${transId}`, { method: 'DELETE' });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
-            
+
             verifikationModal.hide();
             alert('Verifikationen har raderats.');
             location.reload();
