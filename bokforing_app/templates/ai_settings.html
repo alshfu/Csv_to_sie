@@ -1,260 +1,270 @@
-{% extends "base.html" %}
-
+{% extends 'base.html' %}
 {% block title %}AI-inställningar{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-    <h1><i class="bi bi-robot"></i> AI-inställningar</h1>
-    <p>Här kan du hantera AI-assistentens inlärning genom att koppla nyckelord till konton.</p>
+    <h1 class="mb-4">AI-inställningar och Regler</h1>
 
-    <!-- Allmänna regler -->
+    <!-- Sektion för generell prompt -->
     <div class="card mb-4">
         <div class="card-header">
-            <h3>Allmänna regler för AI</h3>
+            Global AI-instruktion (Prompt)
         </div>
         <div class="card-body">
-            <p>Lägg till allmänna regler som AI:n alltid ska följa, oavsett transaktion. Varje regel på en ny rad.</p>
-            <textarea id="gemini-custom-prompt" class="form-control" rows="5"></textarea>
-            <button id="save-prompt-btn" class="btn btn-primary mt-2">Spara allmänna regler</button>
-            <div id="prompt-feedback" class="mt-2"></div>
+            <form id="prompt-form">
+                <div class="mb-3">
+                    <label for="gemini-prompt" class="form-label">Denna text inkluderas i varje anrop till AI:n för att ge den grundläggande instruktioner.</label>
+                    <textarea class="form-control" id="gemini-prompt" rows="6"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Spara global instruktion</button>
+            </form>
         </div>
     </div>
 
-    <!-- Associationer per konto -->
+    <!-- Sektion för associationer och regler -->
     <div class="card">
-        <div class="card-header">
-            <div class="d-flex justify-content-between align-items-center">
-                <h3>Associationer per konto</h3>
-                <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" role="switch" id="filter-accounts-checkbox">
-                    <label class="form-check-label" for="filter-accounts-checkbox">Visa endast konton med associationer</label>
-                </div>
-            </div>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            Nyckelordsassociationer och Regler
+            <button id="add-association-btn" class="btn btn-success">
+                <i class="bi bi-plus-circle me-2"></i>Skapa ny association
+            </button>
         </div>
         <div class="card-body">
-            <p>Här kan du se och redigera vilka nyckelord som är kopplade till varje konto.</p>
-            <div class="accordion" id="accounts-accordion">
-                <!-- Konton laddas här -->
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <input type="text" id="search-konto" class="form-control" placeholder="Sök på konto (nr eller namn)...">
+                </div>
+                <div class="col-md-6">
+                    <input type="text" id="search-keyword" class="form-control" placeholder="Sök på nyckelord...">
+                </div>
+            </div>
+
+            <div id="associations-list">
+                <!-- Innehåll genereras av JavaScript -->
             </div>
         </div>
     </div>
 </div>
 
+<!-- Modal för att redigera/skapa association -->
+<div class="modal fade" id="associationModal" tabindex="-1" aria-labelledby="associationModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="associationModalLabel">Redigera Association</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
+            </div>
+            <div class="modal-body">
+                <form id="association-form">
+                    <input type="hidden" id="association-id">
+                    <div class="mb-3">
+                        <label for="association-konto" class="form-label">Konto</label>
+                        <select id="association-konto" class="form-select" required></select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="association-keyword" class="form-label">Nyckelord</label>
+                        <input type="text" class="form-control" id="association-keyword" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="association-rule" class="form-label">Regel (JSON, lämna tom för enkel koppling)</label>
+                        <textarea class="form-control" id="association-rule" rows="8" placeholder='ex: {"description": "Drivmedel (25%)", "entries": [{"konto": "5611", "debet": "TOTAL * 0.8"}, ...]}'></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger me-auto" id="delete-association-btn">Radera</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
+                <button type="submit" form="association-form" class="btn btn-primary">Spara</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const accountsAccordion = document.getElementById('accounts-accordion');
-    const promptTextarea = document.getElementById('gemini-custom-prompt');
-    const savePromptBtn = document.getElementById('save-prompt-btn');
-    const promptFeedback = document.getElementById('prompt-feedback');
-    const filterCheckbox = document.getElementById('filter-accounts-checkbox');
+    const kontoplan = {{ kontoplan|tojson }};
+    const associationsListEl = document.getElementById('associations-list');
+    const searchKontoInput = document.getElementById('search-konto');
+    const searchKeywordInput = document.getElementById('search-keyword');
+    const promptTextarea = document.getElementById('gemini-prompt');
+    const promptForm = document.getElementById('prompt-form');
+    
+    const associationModal = new bootstrap.Modal(document.getElementById('associationModal'));
+    const associationForm = document.getElementById('association-form');
+    const associationIdInput = document.getElementById('association-id');
+    const associationKontoSelect = document.getElementById('association-konto');
+    const associationKeywordInput = document.getElementById('association-keyword');
+    const associationRuleTextarea = document.getElementById('association-rule');
+    const deleteAssociationBtn = document.getElementById('delete-association-btn');
 
-    const kontoplan = {{ kontoplan | tojson }};
-    let associationsByAccount = {};
+    let allData = { associations_by_account: {}, gemini_custom_prompt: '' };
+    let tomSelectKonto;
 
-    function applyFilter() {
-        const showOnlyAssociated = filterCheckbox.checked;
-        const items = accountsAccordion.querySelectorAll('.accordion-item');
-        items.forEach(item => {
-            const hasAssociations = parseInt(item.getAttribute('data-associations-count'), 10) > 0;
-            if (showOnlyAssociated && !hasAssociations) {
-                item.style.display = 'none';
-            } else {
-                item.style.display = 'block';
+    // Fyll kontoplan-selectorn i modalen
+    associationKontoSelect.innerHTML = Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}">${nr} - ${desc}</option>`).join('');
+    tomSelectKonto = new TomSelect(associationKontoSelect, {create: false, sortField: {field: "text", direction: "asc"}});
+
+    function renderAssociations() {
+        const kontoFilter = searchKontoInput.value.toLowerCase();
+        const keywordFilter = searchKeywordInput.value.toLowerCase();
+        let html = '';
+
+        for (const kontoNr in allData.associations_by_account) {
+            const kontoDesc = kontoplan[kontoNr] || 'Okänt konto';
+            const associations = allData.associations_by_account[kontoNr];
+
+            const filteredAssociations = associations.filter(assoc => 
+                assoc.keyword.toLowerCase().includes(keywordFilter)
+            );
+
+            if (filteredAssociations.length > 0 && (kontoNr.includes(kontoFilter) || kontoDesc.toLowerCase().includes(kontoFilter))) {
+                html += `<div class="mb-3">
+                            <h5>${kontoNr} - ${kontoDesc}</h5>
+                            <div class="list-group">`;
+                
+                filteredAssociations.forEach(assoc => {
+                    html += `<button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center edit-association-btn" 
+                                    data-assoc-id="${assoc.id}" data-konto-nr="${kontoNr}">
+                                ${assoc.keyword}
+                                ${assoc.rule ? '<span class="badge bg-info">Avancerad Regel</span>' : ''}
+                            </button>`;
+                });
+                html += `</div></div>`;
             }
-        });
-    }
-
-    function renderAccount(kontoNr, associations) {
-        const kontoBeskrivning = kontoplan[kontoNr] || 'Okänt konto';
-        const accordionId = `account-${kontoNr}`;
-        const associationsCount = associations.length;
-
-        const item = document.createElement('div');
-        item.className = 'accordion-item';
-        item.setAttribute('data-associations-count', associationsCount);
-        item.innerHTML = `
-            <h2 class="accordion-header" id="heading-${accordionId}">
-                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-${accordionId}">
-                    ${kontoNr} - ${kontoBeskrivning}
-                    <span class="badge bg-primary rounded-pill ms-2">${associationsCount}</span>
-                </button>
-            </h2>
-            <div id="collapse-${accordionId}" class="accordion-collapse collapse" data-bs-parent="#accounts-accordion">
-                <div class="accordion-body">
-                    <ul class="list-group" id="list-${kontoNr}">
-                        <!-- Associationer för detta konto laddas här -->
-                    </ul>
-                    <button class="btn btn-outline-primary btn-sm mt-3 add-keyword-btn" data-konto-nr="${kontoNr}">
-                        <i class="bi bi-plus"></i> Lägg till nyckelord
-                    </button>
-                </div>
-            </div>
-        `;
-        accountsAccordion.appendChild(item);
-
-        const list = item.querySelector(`#list-${kontoNr}`);
-        associations.forEach(assoc => renderAssociation(list, assoc, kontoNr));
-
-        item.querySelector('.add-keyword-btn').addEventListener('click', () => {
-            renderAssociation(list, { id: null, keyword: '', rule: '' }, kontoNr, true);
-        });
-    }
-
-    function renderAssociation(list, assoc, kontoNr, isNew = false) {
-        const li = document.createElement('li');
-        li.className = 'list-group-item';
-        li.setAttribute('data-id', assoc.id || '');
-        li.innerHTML = `
-            <div class="row align-items-center">
-                <div class="col-md-5">
-                    <label class="form-label small">Nyckelord</label>
-                    <input type="text" class="form-control form-control-sm keyword-input" value="${assoc.keyword}" ${isNew ? '' : 'readonly'}>
-                </div>
-                <div class="col-md-5">
-                    <label class="form-label small">Specifik Regel</label>
-                    <input type="text" class="form-control form-control-sm rule-input" value="${assoc.rule || ''}" readonly>
-                </div>
-                <div class="col-md-2 text-end action-buttons">
-                    ${isNew ? `
-                        <button class="btn btn-sm btn-success save-btn" title="Spara"><i class="bi bi-check-lg"></i></button>
-                        <button class="btn btn-sm btn-secondary cancel-new-btn" title="Avbryt"><i class="bi bi-x-lg"></i></button>
-                    ` : `
-                        <button class="btn btn-sm btn-outline-primary edit-btn" title="Redigera"><i class="bi bi-pencil"></i></button>
-                        <button class="btn btn-sm btn-outline-danger delete-btn" title="Ta bort"><i class="bi bi-trash"></i></button>
-                    `}
-                </div>
-            </div>
-        `;
-        list.appendChild(li);
-
-        if (isNew) {
-            li.querySelector('.save-btn').addEventListener('click', () => saveNewAssociation(li, kontoNr));
-            li.querySelector('.cancel-new-btn').addEventListener('click', () => li.remove());
-        } else {
-            li.querySelector('.edit-btn').addEventListener('click', () => toggleEditState(li, true, kontoNr));
-            li.querySelector('.delete-btn').addEventListener('click', () => deleteAssociation(assoc.id, li));
         }
+        associationsListEl.innerHTML = html || '<p class="text-muted">Inga associationer matchar din sökning.</p>';
     }
 
-    function toggleEditState(li, isEditing, kontoNr) {
-        const keywordInput = li.querySelector('.keyword-input');
-        const ruleInput = li.querySelector('.rule-input');
-        const actionButtons = li.querySelector('.action-buttons');
-
-        keywordInput.readOnly = !isEditing;
-        ruleInput.readOnly = !isEditing;
-
-        if (isEditing) {
-            actionButtons.innerHTML = `
-                <button class="btn btn-sm btn-success save-edit-btn" title="Spara"><i class="bi bi-check-lg"></i></button>
-                <button class="btn btn-sm btn-secondary cancel-edit-btn" title="Avbryt"><i class="bi bi-x-lg"></i></button>
-            `;
-            actionButtons.querySelector('.save-edit-btn').addEventListener('click', () => saveEditedAssociation(li, kontoNr));
-            actionButtons.querySelector('.cancel-edit-btn').addEventListener('click', () => loadData());
-        }
-    }
-
-    async function saveNewAssociation(li, kontoNr) {
-        const keyword = li.querySelector('.keyword-input').value;
-        const rule = li.querySelector('.rule-input').value;
-
-        if (!keyword) {
-            alert('Nyckelord får inte vara tomt.');
-            return;
-        }
-
-        try {
-            const response = await fetch('/api/ai_settings/association', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ keyword, konto_nr: kontoNr, rule })
-            });
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error);
-            }
-            await loadData();
-        } catch (error) {
-            alert(`Fel: ${error.message}`);
-        }
-    }
-
-    async function saveEditedAssociation(li, kontoNr) {
-        const id = li.getAttribute('data-id');
-        const keyword = li.querySelector('.keyword-input').value;
-        const rule = li.querySelector('.rule-input').value;
-
-        try {
-            const response = await fetch(`/api/ai_settings/association/${id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ keyword, konto_nr: kontoNr, rule })
-            });
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.error);
-            }
-            await loadData();
-        } catch (error) {
-            alert(`Fel: ${error.message}`);
-        }
-    }
-
-    async function deleteAssociation(id, li) {
-        if (!confirm('Är du säker på att du vill ta bort denna association?')) return;
-        try {
-            const response = await fetch(`/api/ai_settings/association/${id}`, { method: 'DELETE' });
-            if (!response.ok) throw new Error('Kunde inte ta bort.');
-            li.remove();
-        } catch (error) {
-            alert(`Fel: ${error.message}`);
-        }
-    }
-
-    async function loadData() {
-        accountsAccordion.innerHTML = '';
+    async function fetchData() {
         try {
             const response = await fetch('/api/ai_settings');
-            const data = await response.json();
-            associationsByAccount = data.associations_by_account;
-            promptTextarea.value = data.gemini_custom_prompt;
-
-            Object.keys(kontoplan).sort().forEach(kontoNr => {
-                const associations = associationsByAccount[kontoNr] || [];
-                renderAccount(kontoNr, associations);
-            });
-            
-            applyFilter();
-
+            allData = await response.json();
+            promptTextarea.value = allData.gemini_custom_prompt;
+            renderAssociations();
         } catch (error) {
-            console.error('Kunde inte ladda AI-inställningar:', error);
+            console.error("Kunde inte hämta AI-inställningar:", error);
+            associationsListEl.innerHTML = '<p class="text-danger">Kunde inte ladda inställningar.</p>';
         }
     }
-    
-    savePromptBtn.addEventListener('click', async () => {
+
+    // --- Event Listeners ---
+    searchKontoInput.addEventListener('input', renderAssociations);
+    searchKeywordInput.addEventListener('input', renderAssociations);
+
+    promptForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
         try {
             const response = await fetch('/api/ai_settings/prompt', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt: promptTextarea.value })
             });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Kunde inte spara prompt.');
-            
-            promptFeedback.textContent = 'Regler sparade!';
-            promptFeedback.className = 'text-success';
-            setTimeout(() => promptFeedback.textContent = '', 3000);
+            if (!response.ok) throw new Error('Något gick fel.');
+            alert('Global instruktion sparad!');
         } catch (error) {
-            promptFeedback.textContent = error.message;
-            promptFeedback.className = 'text-danger';
+            alert('Kunde inte spara instruktionen.');
         }
     });
 
-    filterCheckbox.addEventListener('change', applyFilter);
-    loadData();
+    // Öppna modal för redigering
+    associationsListEl.addEventListener('click', (e) => {
+        const button = e.target.closest('.edit-association-btn');
+        if (!button) return;
+
+        const assocId = button.dataset.assocId;
+        const kontoNr = button.dataset.kontoNr;
+        const assoc = allData.associations_by_account[kontoNr].find(a => a.id == assocId);
+
+        document.getElementById('associationModalLabel').textContent = 'Redigera Association';
+        associationIdInput.value = assoc.id;
+        tomSelectKonto.setValue(kontoNr);
+        associationKeywordInput.value = assoc.keyword;
+        
+        // Formatera JSON snyggt i textarean
+        try {
+            const ruleObject = JSON.parse(assoc.rule);
+            associationRuleTextarea.value = JSON.stringify(ruleObject, null, 2);
+        } catch {
+            associationRuleTextarea.value = assoc.rule || '';
+        }
+        
+        deleteAssociationBtn.style.display = 'inline-block';
+        associationModal.show();
+    });
+
+    // Öppna modal för att skapa ny
+    document.getElementById('add-association-btn').addEventListener('click', () => {
+        document.getElementById('associationModalLabel').textContent = 'Skapa ny Association';
+        associationForm.reset();
+        tomSelectKonto.clear();
+        associationIdInput.value = '';
+        deleteAssociationBtn.style.display = 'none';
+        associationModal.show();
+    });
+
+    // Spara (skapa eller uppdatera)
+    associationForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const id = associationIdInput.value;
+        const url = id ? `/api/ai_settings/association/${id}` : '/api/ai_settings/association';
+        const method = id ? 'PUT' : 'POST';
+
+        let ruleValue = associationRuleTextarea.value.trim();
+        // Validera JSON om fältet inte är tomt
+        if (ruleValue) {
+            try {
+                JSON.parse(ruleValue);
+            } catch (jsonError) {
+                alert(`Ogiltig JSON i regelfältet: ${jsonError.message}`);
+                return;
+            }
+        }
+
+        const body = {
+            konto_nr: tomSelectKonto.getValue(),
+            keyword: associationKeywordInput.value,
+            rule: ruleValue
+        };
+
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Okänt fel');
+            
+            alert('Sparat!');
+            associationModal.hide();
+            fetchData(); // Ladda om datan och rendera listan på nytt
+        } catch (error) {
+            alert(`Kunde inte spara: ${error.message}`);
+        }
+    });
+
+    // Radera
+    deleteAssociationBtn.addEventListener('click', async () => {
+        const id = associationIdInput.value;
+        if (!id || !confirm('Är du säker på att du vill radera denna association?')) return;
+
+        try {
+            const response = await fetch(`/api/ai_settings/association/${id}`, { method: 'DELETE' });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Okänt fel');
+
+            alert('Raderad!');
+            associationModal.hide();
+            fetchData();
+        } catch (error) {
+            alert(`Kunde inte radera: ${error.message}`);
+        }
+    });
+
+    // Ladda all data när sidan startar
+    fetchData();
 });
 </script>
 {% endblock %}

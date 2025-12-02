@@ -50,7 +50,7 @@
                                 <td class="text-end">{{ "%.2f"|format(trans.belopp) }}</td>
                                 <td><span class="badge bg-warning text-dark">{{ trans.status }}</span></td>
                                 <td class="text-end">
-                                    <button class="btn btn-outline-primary btn-sm ask-ai-btn" data-trans-id="{{ trans.id }}" title="Fråga AI om förslag">
+                                    <button class="btn btn-outline-primary btn-sm ask-ai-btn" data-trans-id="{{ trans.id }}" title="Få bokföringsförslag">
                                         <i class="bi bi-robot"></i> AI
                                     </button>
                                 </td>
@@ -77,19 +77,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const modalForm = document.getElementById('verifikationForm');
     const entriesContainer = document.getElementById('entries-container');
     const tableBody = document.getElementById('transactions-table-body');
+    const modalLabel = document.getElementById('verifikationModalLabel');
 
-    // --- Logik för den enhetliga modalen ---
+    // --- Unified Modal Logic ---
 
     function createEntryRow(entry = {}) {
         const row = document.createElement('div');
         row.className = 'row g-2 mb-2 entry-row';
         row.innerHTML = `
-            <div class="col-md-5">
-                <select class="form-select konto-select" name="konto">
-                    <option value="">Välj konto...</option>
-                    ${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}
-                </select>
-            </div>
+            <div class="col-md-5"><select class="form-select konto-select" name="konto">${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}</select></div>
             <div class="col-md-3"><input type="number" class="form-control debet-input" name="debet" placeholder="Debet" value="${entry.debet || ''}" step="0.01"></div>
             <div class="col-md-3"><input type="number" class="form-control kredit-input" name="kredit" placeholder="Kredit" value="${entry.kredit || ''}" step="0.01"></div>
             <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger remove-entry-row"><i class="bi bi-trash"></i></button></div>
@@ -115,13 +111,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function populateModal(data) {
         document.getElementById('modal-trans-id').value = data.id;
-        document.getElementById('verifikationModalLabel').textContent = `Bokför transaktion ${data.id}`;
+        modalLabel.textContent = `Bokför transaktion ${data.id}`;
         document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
         document.getElementById('modal-referens').value = data.referens;
         
         entriesContainer.innerHTML = '';
         data.entries.forEach(entry => createEntryRow(entry));
-        if (data.entries.length === 0) { // Om inga entries finns, skapa standardrader
+        if (data.entries.length === 0) {
             const bankAmount = data.bank_event ? data.bank_event.amount : 0;
             createEntryRow({ konto: '1930', debet: bankAmount > 0 ? bankAmount : '', kredit: bankAmount < 0 ? -bankAmount : '' });
             createEntryRow();
@@ -130,10 +126,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const bankEventInfo = document.getElementById('modal-bank-event-info');
         if (data.bank_event) {
+            bankEventInfo.style.display = 'block';
             document.getElementById('bank-event-date').textContent = data.bank_event.date;
             document.getElementById('bank-event-ref').textContent = data.bank_event.ref;
             document.getElementById('bank-event-amount').textContent = data.bank_event.amount;
-            bankEventInfo.style.display = 'block';
         } else {
             bankEventInfo.style.display = 'none';
         }
@@ -148,6 +144,8 @@ document.addEventListener('DOMContentLoaded', function() {
             attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
         }
     }
+
+    // --- Event Listeners ---
 
     document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
     entriesContainer.addEventListener('click', e => {
@@ -173,9 +171,12 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // **FIXED** This is the restored submit handler for the modal form
     modalForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const transId = document.getElementById('modal-trans-id').value;
+        if (!transId) return; // Should not happen on this page
+
         const url = `/api/verifikation/${transId}`;
         const method = 'PUT';
 
@@ -199,8 +200,8 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('Fel: Debet och Kredit måste vara i balans.');
             return;
         }
-        if (data.entries.length === 0) {
-            alert('Fel: Du måste ha minst en bokföringspost.');
+        if (data.entries.length < 2) {
+            alert('Fel: Du måste ha minst två bokföringsposter.');
             return;
         }
 
@@ -221,25 +222,23 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // --- Specifik logik för denna sida (AI-knappar, etc.) ---
-
     tableBody.addEventListener('click', async function(e) {
         const aiButton = e.target.closest('.ask-ai-btn');
         if (aiButton) {
             e.stopPropagation();
             const transId = aiButton.dataset.transId;
             aiButton.disabled = true;
-            aiButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+            aiButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
 
             try {
                 const response = await fetch(`/api/transaction/${transId}/ask_gemini`, { method: 'POST' });
-                const suggestion = await response.json();
-                if (!response.ok) throw new Error(suggestion.error || 'Okänt AI-fel');
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Okänt AI-fel');
 
                 const transResponse = await fetch(`/api/verifikation/${transId}`);
                 const transData = await transResponse.json();
                 
-                transData.entries = suggestion.entries; // Byt ut entries mot AI-förslaget
+                transData.entries = result.suggestion.entries;
                 populateModal(transData);
                 verifikationModal.show();
 
@@ -252,7 +251,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-    // Batch booking logic
+    // --- Batch Booking Logic (oförändrad) ---
     const selectAllCheckbox = document.getElementById('select-all-checkbox');
     const checkboxes = document.querySelectorAll('.transaction-checkbox');
     const batchBookBtn = document.getElementById('batch-book-btn');
