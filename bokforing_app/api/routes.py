@@ -9,7 +9,6 @@ import bokforing_app.services.sie_service as sie_service
 import bokforing_app.services.gemini_service as gemini_service
 import os
 
-
 # --- API för CSV ---
 @bp.route('/company/<int:company_id>/upload_csv', methods=['POST'])
 def upload_csv(company_id):
@@ -108,28 +107,89 @@ def delete_bilaga(bilaga_id):
 
 
 # --- API för Bokföring (Modal & Verifikationer) ---
-@bp.route('/entries/<int:trans_id>', methods=['GET'])
-def get_entries(trans_id):
-    transaction = BankTransaction.query.get_or_404(trans_id)
-    entries = [{'id': e.id, 'konto': e.konto, 'debet': e.debet, 'kredit': e.kredit} for e in transaction.entries]
-    return jsonify(entries)
+@bp.route('/verifikation/<int:trans_id>', methods=['GET'])
+def get_verifikation(trans_id):
+    trans = BankTransaction.query.get_or_404(trans_id)
+    
+    # Hämta original bankhändelse-data om det är en importerad transaktion
+    bank_event_data = None
+    if trans.status != 'manual': # Antag att manuellt skapade har en specifik status
+        bank_event_data = {
+            'date': trans.bokforingsdag.strftime('%Y-%m-%d'),
+            'ref': trans.referens,
+            'amount': trans.belopp
+        }
 
+    return jsonify({
+        'id': trans.id,
+        'bokforingsdag': trans.bokforingsdag.strftime('%Y-%m-%d'),
+        'referens': trans.referens,
+        'entries': [{'konto': e.konto, 'debet': e.debet, 'kredit': e.kredit} for e in trans.entries],
+        'attachments': [{'id': b.id, 'filename': b.filename, 'url': url_for('static', filename=f'uploads/{b.filepath.replace(os.path.sep, "/")}')} for b in trans.attachments],
+        'bank_event': bank_event_data
+    })
 
-@bp.route('/save_entries/<int:trans_id>', methods=['POST'])
-def save_entries(trans_id):
-    transaction = BankTransaction.query.get_or_404(trans_id)
+@bp.route('/company/<int:company_id>/verifikation', methods=['POST'])
+def create_verifikation(company_id):
     data = request.json
-    entries_data = data.get('entries')
     try:
-        BookkeepingEntry.query.filter_by(bank_transaction_id=trans_id).delete()
+        # Validering
+        if not data.get('bokforingsdag') or not data.get('referens'):
+            raise ValueError("Datum och referens är obligatoriska.")
         
-        total_debet = sum(float(e.get('debet', 0)) for e in entries_data)
-        total_kredit = sum(float(e.get('kredit', 0)) for e in entries_data)
-
+        total_debet = sum(float(e.get('debet', 0)) for e in data['entries'])
+        total_kredit = sum(float(e.get('kredit', 0)) for e in data['entries'])
         if abs(total_debet - total_kredit) > 0.01:
             raise ValueError("Obalans! Debet och kredit summerar inte till samma värde.")
 
-        for entry_data in entries_data:
+        # Skapa en "manuell" transaktion
+        new_trans = BankTransaction(
+            company_id=company_id,
+            bokforingsdag=datetime.datetime.strptime(data['bokforingsdag'], '%Y-%m-%d').date(),
+            referens=data['referens'],
+            belopp=total_debet, # Totala omslutningen
+            status='processed' # eller 'manual'
+        )
+        db.session.add(new_trans)
+        db.session.flush() # För att få ett ID till new_trans
+
+        for entry_data in data['entries']:
+            new_entry = BookkeepingEntry(
+                bank_transaction_id=new_trans.id,
+                konto=entry_data['konto'],
+                debet=float(entry_data.get('debet', 0)),
+                kredit=float(entry_data.get('kredit', 0))
+            )
+            db.session.add(new_entry)
+        
+        db.session.commit()
+        return jsonify({'message': 'Verifikation skapad!', 'id': new_trans.id}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/verifikation/<int:trans_id>', methods=['PUT'])
+def update_verifikation(trans_id):
+    trans = BankTransaction.query.get_or_404(trans_id)
+    data = request.json
+    try:
+        # Validering
+        if not data.get('bokforingsdag') or not data.get('referens'):
+            raise ValueError("Datum och referens är obligatoriska.")
+        
+        total_debet = sum(float(e.get('debet', 0)) for e in data['entries'])
+        total_kredit = sum(float(e.get('kredit', 0)) for e in data['entries'])
+        if abs(total_debet - total_kredit) > 0.01:
+            raise ValueError("Obalans! Debet och kredit summerar inte till samma värde.")
+
+        # Uppdatera transaktionen
+        trans.bokforingsdag = datetime.datetime.strptime(data['bokforingsdag'], '%Y-%m-%d').date()
+        trans.referens = data['referens']
+        trans.belopp = total_debet # Totala omslutningen
+
+        # Ta bort gamla entries och lägg till nya
+        BookkeepingEntry.query.filter_by(bank_transaction_id=trans_id).delete()
+        for entry_data in data['entries']:
             new_entry = BookkeepingEntry(
                 bank_transaction_id=trans_id,
                 konto=entry_data['konto'],
@@ -137,36 +197,23 @@ def save_entries(trans_id):
                 kredit=float(entry_data.get('kredit', 0))
             )
             db.session.add(new_entry)
-        
-        if transaction.referens:
-            main_account_entry = next((e for e in entries_data if e.get('konto') != '1930'), None)
-            if main_account_entry:
-                keyword = transaction.referens.strip()
-                association = Association.query.filter_by(keyword=keyword).first()
-                if not association:
-                    new_association = Association(keyword=keyword, konto_nr=main_account_entry.get('konto'))
-                    db.session.add(new_association)
-
-        transaction.status = 'processed'
+            
         db.session.commit()
-        return jsonify({'message': 'Sparat!', 'processed_id': trans_id})
+        return jsonify({'message': 'Verifikation uppdaterad!', 'id': trans.id}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-@bp.route('/verifikation/<int:trans_id>', methods=['PUT'])
-def update_verifikation(trans_id):
-    return save_entries(trans_id)
-
 @bp.route('/verifikation/<int:trans_id>', methods=['DELETE'])
 def delete_verifikation(trans_id):
-    transaction = BankTransaction.query.get_or_404(trans_id)
+    trans = BankTransaction.query.get_or_404(trans_id)
     try:
+        # Frikoppla eventuella bilagor
         Bilaga.query.filter_by(bank_transaction_id=trans_id).update({'bank_transaction_id': None, 'status': 'unassigned'})
-        BookkeepingEntry.query.filter_by(bank_transaction_id=trans_id).delete()
-        transaction.status = 'unprocessed'
+        # Radera transaktionen och dess entries (via cascade)
+        db.session.delete(trans)
         db.session.commit()
-        return jsonify({'message': 'Verifikation borttagen, transaktion återställd.'}), 200
+        return jsonify({'message': 'Verifikation har raderats permanent.'}), 200
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

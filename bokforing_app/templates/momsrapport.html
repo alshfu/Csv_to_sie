@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Momsrapport för {{ company.name }}</h1>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            Filtrera momsrapport
+        </div>
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('main.momsrapport_page', company_id=company.id) }}">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label for="year" class="form-label">År:</label>
+                        <select class="form-select" id="year" name="year">
+                            {% for y in available_years %}
+                                <option value="{{ y }}" {% if y == selected_year %}selected{% endif %}>{{ y }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="quarter" class="form-label">Kvartal:</label>
+                        <select class="form-select" id="quarter" name="quarter">
+                            <option value="">Alla</option>
+                            <option value="1" {% if selected_quarter == '1' %}selected{% endif %}>Kvartal 1 (Jan-Mar)</option>
+                            <option value="2" {% if selected_quarter == '2' %}selected{% endif %}>Kvartal 2 (Apr-Jun)</option>
+                            <option value="3" {% if selected_quarter == '3' %}selected{% endif %}>Kvartal 3 (Jul-Sep)</option>
+                            <option value="4" {% if selected_quarter == '4' %}selected{% endif %}>Kvartal 4 (Okt-Dec)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="month" class="form-label">Månad:</label>
+                        <select class="form-select" id="month" name="month">
+                            <option value="">Alla</option>
+                            <option value="1" {% if selected_month == '1' %}selected{% endif %}>Januari</option>
+                            <option value="2" {% if selected_month == '2' %}selected{% endif %}>Februari</option>
+                            <option value="3" {% if selected_month == '3' %}selected{% endif %}>Mars</option>
+                            <option value="4" {% if selected_month == '4' %}selected{% endif %}>April</option>
+                            <option value="5" {% if selected_month == '5' %}selected{% endif %}>Maj</option>
+                            <option value="6" {% if selected_month == '6' %}selected{% endif %}>Juni</option>
+                            <option value="7" {% if selected_month == '7' %}selected{% endif %}>Juli</option>
+                            <option value="8" {% if selected_month == '8' %}selected{% endif %}>Augusti</option>
+                            <option value="9" {% if selected_month == '9' %}selected{% endif %}>September</option>
+                            <option value="10" {% if selected_month == '10' %}selected{% endif %}>Oktober</option>
+                            <option value="11" {% if selected_month == '11' %}selected{% endif %}>November</option>
+                            <option value="12" {% if selected_month == '12' %}selected{% endif %}>December</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-primary w-100">Visa rapport</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if moms_data %}
+        <div class="card mb-4">
+            <div class="card-header">
+                Momsrapport för {{ report_period }}
+            </div>
+            <div class="card-body">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Momsbeskrivning</th>
+                            <th class="text-end">Utgående moms (SEK)</th>
+                            <th class="text-end">Ingående moms (SEK)</th>
+                            <th class="text-end">Netto moms (SEK)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for description, data in moms_data.items() %}
+                            <tr>
+                                <td>{{ description }}</td>
+                                <td class="text-end">{{ data.utgaende | currency }}</td>
+                                <td class="text-end">{{ data.ingende | currency }}</td>
+                                <td class="text-end">{{ (data.utgaende - data.ingende) | currency }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <th>Total moms att betala/få tillbaka</th>
+                            <th class="text-end">{{ total_utgaende | currency }}</th>
+                            <th class="text-end">{{ total_ingende | currency }}</th>
+                            <th class="text-end">{{ (total_utgaende - total_ingende) | currency }}</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    {% else %}
+        <div class="alert alert-info" role="alert">
+            Ingen momsdata tillgänglig för den valda perioden.
+        </div>
+    {% endif %}
+
+    <a href="{{ url_for('main.bokforing_page', company_id=company.id) }}" class="btn btn-secondary">Tillbaka till företag</a>
+</div>
+{% endblock %}

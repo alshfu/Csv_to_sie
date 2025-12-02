@@ -2,27 +2,31 @@
 {% block title %}Verifikationer - {{ company.name }}{% endblock %}
 
 {% block content %}
-    <h2>Verifikationer: {{ company.name }}</h2>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2>Verifikationer: {{ company.name }}</h2>
+        <button id="new-ver-btn" class="btn btn-primary">
+            <i class="bi bi-plus-circle me-2"></i>Skapa ny verifikation
+        </button>
+    </div>
 
-    <div class="table-responsive mt-4">
+    <div class="table-responsive">
         <table class="table table-hover">
             <thead>
                 <tr>
                     <th>Ver. ID</th>
                     <th>Datum</th>
                     <th>Referens</th>
-                    <th>Belopp</th>
+                    <th class="text-end">Belopp</th>
                     <th>Konton</th>
-                    <th>Åtgärd</th>
                 </tr>
             </thead>
             <tbody id="verifikationer-table-body">
                 {% for trans in transactions %}
-                    <tr id="ver-row-{{ trans.id }}">
+                    <tr id="ver-row-{{ trans.id }}" class="ver-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;">
                         <td>{{ trans.id }}</td>
                         <td>{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
                         <td>{{ trans.referens }}</td>
-                        <td>{{ "%.2f"|format(trans.belopp) }}</td>
+                        <td class="text-end">{{ "%.2f"|format(trans.belopp) }}</td>
                         <td>
                             {% for entry in trans.entries %}
                                 <span class="badge bg-light text-dark" style="border: 1px solid #ccc;" title="{{ entry.konto }}">
@@ -30,56 +34,226 @@
                                 </span>
                             {% endfor %}
                         </td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-danger delete-ver-btn" data-trans-id="{{ trans.id }}" title="Ta bort verifikation">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </td>
                     </tr>
                 {% else %}
                     <tr>
-                        <td colspan="6" class="text-center">Inga verifikationer hittades.</td>
+                        <td colspan="5" class="text-center">Inga verifikationer hittades.</td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    {% include '_verifikation_modal.html' %}
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const companyId = {{ company.id }};
+    const kontoplan = {{ kontoplan|tojson }};
+    const verifikationModal = new bootstrap.Modal(document.getElementById('verifikationModal'));
+    const modalForm = document.getElementById('verifikationForm');
+    const entriesContainer = document.getElementById('entries-container');
     const tableBody = document.getElementById('verifikationer-table-body');
 
-    tableBody.addEventListener('click', async function(e) {
-        const deleteBtn = e.target.closest('.delete-ver-btn');
-        if (!deleteBtn) return;
+    // Funktion för att skapa en ny rad för en bokföringspost
+    function createEntryRow(entry = {}) {
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 entry-row';
+        row.innerHTML = `
+            <div class="col-md-5">
+                <select class="form-select konto-select" name="konto">
+                    <option value="">Välj konto...</option>
+                    ${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}
+                </select>
+            </div>
+            <div class="col-md-3">
+                <input type="number" class="form-control debet-input" name="debet" placeholder="Debet" value="${entry.debet || ''}" step="0.01">
+            </div>
+            <div class="col-md-3">
+                <input type="number" class="form-control kredit-input" name="kredit" placeholder="Kredit" value="${entry.kredit || ''}" step="0.01">
+            </div>
+            <div class="col-md-1">
+                <button type="button" class="btn btn-sm btn-outline-danger remove-entry-row"><i class="bi bi-trash"></i></button>
+            </div>
+        `;
+        entriesContainer.appendChild(row);
+        new TomSelect(row.querySelector('.konto-select'), { create: false, sortField: { field: "text", direction: "asc" } });
+    }
 
-        const transId = deleteBtn.dataset.transId;
-        if (!confirm(`Är du säker på att du vill ta bort verifikation ${transId}? Transaktionen kommer att återställas till obearbetad.`)) {
+    // Funktion för att uppdatera totaler
+    function updateTotals() {
+        let totalDebet = 0;
+        let totalKredit = 0;
+        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            const debet = parseFloat(row.querySelector('.debet-input').value) || 0;
+            const kredit = parseFloat(row.querySelector('.kredit-input').value) || 0;
+            totalDebet += debet;
+            totalKredit += kredit;
+        });
+        document.getElementById('total-debet').textContent = totalDebet.toFixed(2);
+        document.getElementById('total-kredit').textContent = totalKredit.toFixed(2);
+        const balance = totalDebet - totalKredit;
+        const balanceEl = document.getElementById('balance');
+        balanceEl.textContent = balance.toFixed(2);
+        balanceEl.classList.toggle('text-danger', balance.toFixed(2) != '0.00');
+        balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
+    }
+    
+    // Funktion för att fylla modalen med data
+    function populateModal(data) {
+        document.getElementById('modal-trans-id').value = data.id;
+        document.getElementById('verifikationModalLabel').textContent = `Redigera verifikation ${data.id}`;
+        document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
+        document.getElementById('modal-referens').value = data.referens;
+        
+        entriesContainer.innerHTML = '';
+        data.entries.forEach(entry => createEntryRow(entry));
+        if (data.entries.length === 0) {
+            createEntryRow();
+            createEntryRow();
+        }
+        updateTotals();
+
+        // Fyll i bankhändelse-info
+        const bankEventInfo = document.getElementById('modal-bank-event-info');
+        if (data.bank_event) {
+            document.getElementById('bank-event-date').textContent = data.bank_event.date;
+            document.getElementById('bank-event-ref').textContent = data.bank_event.ref;
+            document.getElementById('bank-event-amount').textContent = data.bank_event.amount;
+            bankEventInfo.style.display = 'block';
+        } else {
+            bankEventInfo.style.display = 'none';
+        }
+
+        // Fyll i bilagor
+        const attachmentsList = document.getElementById('attachments-list');
+        attachmentsList.innerHTML = '';
+        if (data.attachments && data.attachments.length > 0) {
+            data.attachments.forEach(att => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center';
+                li.innerHTML = `
+                    <a href="${att.url}" target="_blank">${att.filename}</a>
+                    <button class="btn btn-sm btn-outline-danger" data-attachment-id="${att.id}">Frikoppla</button>
+                `;
+                attachmentsList.appendChild(li);
+            });
+        } else {
+            attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
+        }
+    }
+
+    // Event listeners
+    document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
+    entriesContainer.addEventListener('click', e => {
+        if (e.target.closest('.remove-entry-row')) {
+            e.target.closest('.entry-row').remove();
+            updateTotals();
+        }
+    });
+    entriesContainer.addEventListener('input', e => {
+        if (e.target.classList.contains('debet-input') || e.target.classList.contains('kredit-input')) {
+            updateTotals();
+        }
+    });
+
+    // Öppna modal för ny verifikation
+    document.getElementById('new-ver-btn').addEventListener('click', () => {
+        modalForm.reset();
+        document.getElementById('modal-trans-id').value = '';
+        document.getElementById('verifikationModalLabel').textContent = 'Skapa ny verifikation';
+        entriesContainer.innerHTML = '';
+        createEntryRow();
+        createEntryRow();
+        updateTotals();
+        document.getElementById('modal-bank-event-info').style.display = 'none';
+        document.getElementById('attachments-list').innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
+        verifikationModal.show();
+    });
+
+    // Öppna modal för att redigera befintlig verifikation
+    tableBody.addEventListener('click', async function(e) {
+        const row = e.target.closest('.ver-row');
+        if (row) {
+            const transId = row.dataset.transId;
+            const response = await fetch(`/api/verifikation/${transId}`);
+            const data = await response.json();
+            populateModal(data);
+            verifikationModal.show();
+        }
+    });
+
+    // Hantera borttagning från modalen
+    document.getElementById('delete-ver-btn-modal').addEventListener('click', async function() {
+        const transId = document.getElementById('modal-trans-id').value;
+        if (!transId || !confirm(`Är du säker på att du vill radera verifikation ${transId} permanent?`)) {
             return;
         }
 
         try {
-            const response = await fetch(`/api/verifikation/${transId}`, {
-                method: 'DELETE'
-            });
+            const response = await fetch(`/api/verifikation/${transId}`, { method: 'DELETE' });
             const result = await response.json();
-            if (!response.ok) {
-                throw new Error(result.error || 'Ett okänt fel inträffade.');
-            }
+            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
             
-            // Ta bort raden från tabellen
-            const row = document.getElementById(`ver-row-${transId}`);
-            if (row) {
-                row.remove();
-            }
-            // Du kan lägga till en flash-liknande notis här om du vill
-            alert('Verifikationen har tagits bort och transaktionen har återställts.');
+            verifikationModal.hide();
+            alert('Verifikationen har raderats.');
+            location.reload();
 
         } catch (error) {
-            console.error('Fel vid borttagning:', error);
-            alert(`Kunde inte ta bort verifikationen: ${error.message}`);
+            alert(`Kunde inte radera verifikationen: ${error.message}`);
+        }
+    });
+
+    // Hantera formulär-submit (spara/skapa)
+    modalForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const transId = document.getElementById('modal-trans-id').value;
+        const url = transId ? `/api/verifikation/${transId}` : `/api/company/${companyId}/verifikation`;
+        const method = transId ? 'PUT' : 'POST';
+
+        const formData = new FormData(modalForm);
+        const data = {
+            bokforingsdag: formData.get('bokforingsdag'),
+            referens: formData.get('referens'),
+            entries: []
+        };
+
+        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            const konto = row.querySelector('.konto-select').value;
+            const debet = parseFloat(row.querySelector('.debet-input').value) || 0;
+            const kredit = parseFloat(row.querySelector('.kredit-input').value) || 0;
+            if (konto && (debet > 0 || kredit > 0)) {
+                data.entries.push({ konto, debet, kredit });
+            }
+        });
+
+        const balance = parseFloat(document.getElementById('balance').textContent);
+        if (balance.toFixed(2) != '0.00') {
+            alert('Fel: Debet och Kredit måste vara i balans.');
+            return;
+        }
+        if (data.entries.length === 0) {
+            alert('Fel: Du måste ha minst en bokföringspost.');
+            return;
+        }
+
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
+
+            verifikationModal.hide();
+            alert('Verifikationen har sparats!');
+            location.reload();
+
+        } catch (error) {
+            alert(`Kunde inte spara verifikationen: ${error.message}`);
         }
     });
 });

@@ -2,15 +2,13 @@
 {% block title %}Bokföring - {{ company.name }}{% endblock %}
 
 {% block content %}
-
     <h2>Bokföring: {{ company.name }}</h2>
 
     <div class="d-flex justify-content-between align-items-center my-4">
         <div class="card bg-light flex-grow-1 me-3">
             <div class="card-body">
                 <h5 class="card-title">Ladda upp ny CSV (Banktransaktioner)</h5>
-                <form action="{{ url_for('api.upload_csv', company_id=company.id) }}" method="POST"
-                      enctype="multipart/form-data">
+                <form action="{{ url_for('api.upload_csv', company_id=company.id) }}" method="POST" enctype="multipart/form-data">
                     <div class="input-group">
                         <input type="file" class="form-control" name="csv_file" accept=".csv" required>
                         <button class="btn btn-primary" type="submit">Ladda upp CSV</button>
@@ -26,51 +24,38 @@
     <div class="row mt-3">
         <div class="col-md-12">
             <h3>Obearbetade transaktioner</h3>
-
             <div class="mb-3">
                 <button id="batch-book-btn" class="btn btn-success" disabled>
                     Bokför markerade med AI (<span id="selected-count">0</span>)
                 </button>
             </div>
-
             <div class="table-responsive">
                 <table class="table table-hover">
                     <thead>
-                    <tr>
-                        <th><input type="checkbox" id="select-all-checkbox"></th>
-                        <th data-sort-index="0" data-sort-type="date" style="cursor: pointer;">Datum</th>
-                        <th data-sort-index="1" data-sort-type="text" style="cursor: pointer;">Referens</th>
-                        <th data-sort-index="2" data-sort-type="number" style="cursor: pointer;">Belopp</th>
-                        <th data-sort-index="3" data-sort-type="text" style="cursor: pointer;">Konton</th>
-                        <th data-sort-index="4" data-sort-type="text" style="cursor: pointer;">Status</th>
-                        <th>Åtgärd</th>
-                    </tr>
+                        <tr>
+                            <th><input type="checkbox" id="select-all-checkbox"></th>
+                            <th>Datum</th>
+                            <th>Referens</th>
+                            <th class="text-end">Belopp</th>
+                            <th>Status</th>
+                            <th class="text-end">Åtgärd</th>
+                        </tr>
                     </thead>
                     <tbody id="transactions-table-body">
-                    {% for trans in transactions %}
-                        <tr id="trans-row-{{ trans.id }}" class="transaction-row" style="cursor: pointer;">
-                            <td><input type="checkbox" class="transaction-checkbox" data-trans-id="{{ trans.id }}"></td>
-                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
-                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">{{ trans.referens }}</td>
-                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">{{ "%.2f"|format(trans.belopp) }}</td>
-                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}">
-                                {% for entry in trans.entries %}
-                                    {% if entry.konto != '1930' %}
-                                        <span class="badge bg-light text-dark" style="border: 1px solid #ccc;"
-                                              title="{{ entry.konto }}">
-                                            {{ kontoplan.get(entry.konto, entry.konto) }}
-                                        </span>
-                                    {% endif %}
-                                {% endfor %}
-                            </td>
-                            <td class="open-modal-cell" data-trans-id="{{ trans.id }}"><span class="badge bg-warning text-dark">{{ trans.status }}</span></td>
-                            <td>
-                                <button class="btn btn-outline-primary btn-sm ask-ai-btn" data-trans-id="{{ trans.id }}" title="Fråga AI om förslag">
-                                    <i class="bi bi-robot"></i> AI
-                                </button>
-                            </td>
-                        </tr>
-                    {% endfor %}
+                        {% for trans in transactions %}
+                            <tr id="trans-row-{{ trans.id }}" class="transaction-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;">
+                                <td><input type="checkbox" class="transaction-checkbox" data-trans-id="{{ trans.id }}"></td>
+                                <td>{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
+                                <td>{{ trans.referens }}</td>
+                                <td class="text-end">{{ "%.2f"|format(trans.belopp) }}</td>
+                                <td><span class="badge bg-warning text-dark">{{ trans.status }}</span></td>
+                                <td class="text-end">
+                                    <button class="btn btn-outline-primary btn-sm ask-ai-btn" data-trans-id="{{ trans.id }}" title="Fråga AI om förslag">
+                                        <i class="bi bi-robot"></i> AI
+                                    </button>
+                                </td>
+                            </tr>
+                        {% endfor %}
                     </tbody>
                 </table>
             </div>
@@ -80,108 +65,243 @@
         <button type="submit" class="btn btn-success">Generera SIE-fil</button>
     </form>
 
-    <div class="modal fade" id="bokforingModal" tabindex="-1" aria-labelledby="bokforingModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-xl">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="bokforingModalLabel">Bokför transaktion</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
-                </div>
-
-                <div class="modal-body">
-                    <div id="modal-alert" class="alert alert-danger" style="display: none;" role="alert"></div>
-
-                    <p><strong>Datum:</strong> <span id="modal-date"></span></p>
-                    <p><strong>Referens:</strong> <span id="modal-referens"></span></p>
-                    <p><strong>Bankbelopp:</strong> <span id="modal-amount" class="fw-bold"></span></p>
-
-                    <hr>
-
-                    <h6>Kopplade Bilagor</h6>
-                    <ul id="bilaga-list" class="list-group list-group-flush mb-3">
-                    </ul>
-                    
-                    <hr>
-
-                    <div class="mb-3">
-                        <label class="form-label">Beräkna moms (klicka i en summa-ruta först):</label>
-                        <div class="btn-group" role="group" id="moms-btn-group">
-                            <button type="button" class="btn btn-outline-info btn-sm moms-btn" data-rate="25" disabled>
-                                Moms 25%
-                            </button>
-                            <button type="button" class="btn btn-outline-info btn-sm moms-btn" data-rate="12" disabled>
-                                Moms 12%
-                            </button>
-                            <button type="button" class="btn btn-outline-info btn-sm moms-btn" data-rate="6" disabled>
-                                Moms 6%
-                            </button>
-                        </div>
-                    </div>
-
-                    <form id="bokforing-form">
-                        <input type="hidden" id="modal-trans-id">
-                        <table class="table table-sm">
-                            <thead>
-                            <tr>
-                                <th>Konto</th>
-                                <th>Debet</th>
-                                <th>Kredit</th>
-                                <th></th>
-                            </tr>
-                            </thead>
-                            <tbody id="entries-container">
-                            <template id="entry-row-template">
-                                <tr>
-                                    <td>
-                                        <input type="text" class="konto-input" placeholder="Välj konto...">
-                                    </td>
-                                    <td><input type="number" step="0.01"
-                                               class="form-control form-control-sm debet-input" placeholder="0.00"></td>
-                                    <td><input type="number" step="0.01"
-                                               class="form-control form-control-sm kredit-input" placeholder="0.00">
-                                    </td>
-                                    <td>
-                                        <button type="button" class="btn btn-danger btn-sm remove-row-btn" title="Ta bort rad">X</button>
-                                    </td>
-                                </tr>
-                            </template>
-                            </tbody>
-                            <tfoot>
-                            <tr>
-                                <td><strong>Summa:</strong></td>
-                                <td><strong id="total-debet">0.00</strong></td>
-                                <td><strong id="total-kredit">0.00</strong></td>
-                                <td></td>
-                            </tr>
-                            <tr>
-                                <td colspan="2"><strong>Differens:</strong></td>
-                                <td colspan="2"><strong id="total-diff" class="text-danger">0.00</strong></td>
-                            </tr>
-                            </tfoot>
-                        </table>
-                        <button type="button" class="btn btn-outline-primary btn-sm" id="add-row-btn">Lägg till rad
-                        </button>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
-                    <button type="button" class="btn btn-primary" id="save-entries-btn">Spara</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
+    {% include '_verifikation_modal.html' %}
 {% endblock %}
 
-
 {% block scripts %}
-    <script>
-        const KONTOPLAN = {{ kontoplan|tojson }};
-        const ASSOCIATION_MAP = {{ association_map|tojson }};
-        const COMPANY_ID = {{ company.id }};
-    </script>
-    <script src="{{ url_for('static', filename='js/mainTable.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/kontoAutocomplete.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/inboxHandler.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modalHandler.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const companyId = {{ company.id }};
+    const kontoplan = {{ kontoplan|tojson }};
+    const verifikationModal = new bootstrap.Modal(document.getElementById('verifikationModal'));
+    const modalForm = document.getElementById('verifikationForm');
+    const entriesContainer = document.getElementById('entries-container');
+    const tableBody = document.getElementById('transactions-table-body');
+
+    // --- Logik för den enhetliga modalen ---
+
+    function createEntryRow(entry = {}) {
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 entry-row';
+        row.innerHTML = `
+            <div class="col-md-5">
+                <select class="form-select konto-select" name="konto">
+                    <option value="">Välj konto...</option>
+                    ${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}
+                </select>
+            </div>
+            <div class="col-md-3"><input type="number" class="form-control debet-input" name="debet" placeholder="Debet" value="${entry.debet || ''}" step="0.01"></div>
+            <div class="col-md-3"><input type="number" class="form-control kredit-input" name="kredit" placeholder="Kredit" value="${entry.kredit || ''}" step="0.01"></div>
+            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger remove-entry-row"><i class="bi bi-trash"></i></button></div>
+        `;
+        entriesContainer.appendChild(row);
+        new TomSelect(row.querySelector('.konto-select'), { create: false, sortField: { field: "text", direction: "asc" } });
+    }
+
+    function updateTotals() {
+        let totalDebet = 0, totalKredit = 0;
+        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            totalDebet += parseFloat(row.querySelector('.debet-input').value) || 0;
+            totalKredit += parseFloat(row.querySelector('.kredit-input').value) || 0;
+        });
+        document.getElementById('total-debet').textContent = totalDebet.toFixed(2);
+        document.getElementById('total-kredit').textContent = totalKredit.toFixed(2);
+        const balance = totalDebet - totalKredit;
+        const balanceEl = document.getElementById('balance');
+        balanceEl.textContent = balance.toFixed(2);
+        balanceEl.classList.toggle('text-danger', balance.toFixed(2) != '0.00');
+        balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
+    }
+
+    function populateModal(data) {
+        document.getElementById('modal-trans-id').value = data.id;
+        document.getElementById('verifikationModalLabel').textContent = `Bokför transaktion ${data.id}`;
+        document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
+        document.getElementById('modal-referens').value = data.referens;
+        
+        entriesContainer.innerHTML = '';
+        data.entries.forEach(entry => createEntryRow(entry));
+        if (data.entries.length === 0) { // Om inga entries finns, skapa standardrader
+            const bankAmount = data.bank_event ? data.bank_event.amount : 0;
+            createEntryRow({ konto: '1930', debet: bankAmount > 0 ? bankAmount : '', kredit: bankAmount < 0 ? -bankAmount : '' });
+            createEntryRow();
+        }
+        updateTotals();
+
+        const bankEventInfo = document.getElementById('modal-bank-event-info');
+        if (data.bank_event) {
+            document.getElementById('bank-event-date').textContent = data.bank_event.date;
+            document.getElementById('bank-event-ref').textContent = data.bank_event.ref;
+            document.getElementById('bank-event-amount').textContent = data.bank_event.amount;
+            bankEventInfo.style.display = 'block';
+        } else {
+            bankEventInfo.style.display = 'none';
+        }
+
+        const attachmentsList = document.getElementById('attachments-list');
+        attachmentsList.innerHTML = '';
+        if (data.attachments && data.attachments.length > 0) {
+            data.attachments.forEach(att => {
+                attachmentsList.innerHTML += `<li class="list-group-item"><a href="${att.url}" target="_blank">${att.filename}</a></li>`;
+            });
+        } else {
+            attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
+        }
+    }
+
+    document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
+    entriesContainer.addEventListener('click', e => {
+        if (e.target.closest('.remove-entry-row')) {
+            e.target.closest('.entry-row').remove();
+            updateTotals();
+        }
+    });
+    entriesContainer.addEventListener('input', e => {
+        if (e.target.classList.contains('debet-input') || e.target.classList.contains('kredit-input')) {
+            updateTotals();
+        }
+    });
+
+    tableBody.addEventListener('click', async function(e) {
+        const row = e.target.closest('.transaction-row');
+        if (row && !e.target.closest('.transaction-checkbox') && !e.target.closest('.ask-ai-btn')) {
+            const transId = row.dataset.transId;
+            const response = await fetch(`/api/verifikation/${transId}`);
+            const data = await response.json();
+            populateModal(data);
+            verifikationModal.show();
+        }
+    });
+
+    modalForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const transId = document.getElementById('modal-trans-id').value;
+        const url = `/api/verifikation/${transId}`;
+        const method = 'PUT';
+
+        const formData = new FormData(modalForm);
+        const data = {
+            bokforingsdag: formData.get('bokforingsdag'),
+            referens: formData.get('referens'),
+            entries: []
+        };
+
+        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            const konto = row.querySelector('.konto-select').value;
+            const debet = parseFloat(row.querySelector('.debet-input').value) || 0;
+            const kredit = parseFloat(row.querySelector('.kredit-input').value) || 0;
+            if (konto && (debet > 0 || kredit > 0)) {
+                data.entries.push({ konto, debet, kredit });
+            }
+        });
+
+        if (parseFloat(document.getElementById('balance').textContent).toFixed(2) != '0.00') {
+            alert('Fel: Debet och Kredit måste vara i balans.');
+            return;
+        }
+        if (data.entries.length === 0) {
+            alert('Fel: Du måste ha minst en bokföringspost.');
+            return;
+        }
+
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
+
+            verifikationModal.hide();
+            alert('Verifikationen har sparats!');
+            location.reload();
+        } catch (error) {
+            alert(`Kunde inte spara verifikationen: ${error.message}`);
+        }
+    });
+    
+    // --- Specifik logik för denna sida (AI-knappar, etc.) ---
+
+    tableBody.addEventListener('click', async function(e) {
+        const aiButton = e.target.closest('.ask-ai-btn');
+        if (aiButton) {
+            e.stopPropagation();
+            const transId = aiButton.dataset.transId;
+            aiButton.disabled = true;
+            aiButton.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+
+            try {
+                const response = await fetch(`/api/transaction/${transId}/ask_gemini`, { method: 'POST' });
+                const suggestion = await response.json();
+                if (!response.ok) throw new Error(suggestion.error || 'Okänt AI-fel');
+
+                const transResponse = await fetch(`/api/verifikation/${transId}`);
+                const transData = await transResponse.json();
+                
+                transData.entries = suggestion.entries; // Byt ut entries mot AI-förslaget
+                populateModal(transData);
+                verifikationModal.show();
+
+            } catch (error) {
+                alert(`AI-fel: ${error.message}`);
+            } finally {
+                aiButton.disabled = false;
+                aiButton.innerHTML = '<i class="bi bi-robot"></i> AI';
+            }
+        }
+    });
+    
+    // Batch booking logic
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    const checkboxes = document.querySelectorAll('.transaction-checkbox');
+    const batchBookBtn = document.getElementById('batch-book-btn');
+    const selectedCountSpan = document.getElementById('selected-count');
+
+    function updateBatchButton() {
+        const selected = document.querySelectorAll('.transaction-checkbox:checked');
+        selectedCountSpan.textContent = selected.length;
+        batchBookBtn.disabled = selected.length === 0;
+    }
+
+    selectAllCheckbox.addEventListener('change', (e) => {
+        checkboxes.forEach(cb => cb.checked = e.target.checked);
+        updateBatchButton();
+    });
+
+    checkboxes.forEach(cb => cb.addEventListener('change', updateBatchButton));
+
+    batchBookBtn.addEventListener('click', async () => {
+        const selectedIds = Array.from(document.querySelectorAll('.transaction-checkbox:checked')).map(cb => cb.dataset.transId);
+        if (selectedIds.length === 0) return;
+
+        batchBookBtn.disabled = true;
+        batchBookBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Bokför...';
+
+        try {
+            const response = await fetch('/api/batch_book_with_ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transaction_ids: selectedIds })
+            });
+            const result = await response.json();
+            
+            let message = `${result.success_ids.length} transaktioner bokfördes.`;
+            if (result.errors.length > 0) {
+                message += `\n${result.errors.length} misslyckades. Se konsolen för detaljer.`;
+                console.error('Batch-fel:', result.errors);
+            }
+            alert(message);
+            location.reload();
+
+        } catch (error) {
+            alert(`Ett allvarligt fel inträffade: ${error.message}`);
+        } finally {
+            batchBookBtn.disabled = false;
+            batchBookBtn.innerHTML = `Bokför markerade med AI (<span id="selected-count">0</span>)`;
+            updateBatchButton();
+        }
+    });
+});
+</script>
 {% endblock %}

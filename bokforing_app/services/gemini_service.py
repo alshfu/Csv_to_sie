@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import os
 import json
+import traceback
 from typing import List, Optional
 import httpx
 from bokforing_app.models import BankTransaction
 from bokforing_app.services.accounting_config import KONTOPLAN
+
 
 def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_rules: str, specific_rule: str) -> str:
     """
@@ -18,13 +20,13 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
     transport = None
     if proxy_url:
         try:
-            from httpx_socks import SyncSocks5Transport
-            parts = proxy_url.replace("socks5://", "").split(":")
-            host = parts[0]
-            port = int(parts[1]) if len(parts) > 1 else 1080
-            transport = SyncSocks5Transport(host=host, port=port)
-        except ImportError:
-            return json.dumps({"error": "Proxysupport kräver 'httpx-socks'. Kör 'pip install httpx-socks'."})
+            from httpx_socks import SyncProxyTransport
+            transport = SyncProxyTransport.from_url(proxy_url)
+        except ImportError as e:
+            error_msg = f"ImportError for httpx_socks: {e}\nTraceback: {traceback.format_exc()}"
+            print(error_msg)  # Log to server console
+            return json.dumps({
+                                  "error": "Proxysupport misslyckades (se serverlog för detaljer). Installera med 'pip install httpx-socks' om nödvändigt."})
         except Exception as e:
             return json.dumps({"error": f"Kunde inte konfigurera SOCKS5-proxy: {e}"})
 
@@ -68,7 +70,7 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
     2.  Bankkontot är ALLTID '1930'.
     3.  Se till att summan av debet och kredit är i balans.
     """
-    
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key={api_key}"
 
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -80,7 +82,7 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
 
             api_response = response.json()
             text_response = api_response['candidates'][0]['content']['parts'][0]['text']
-            
+
             cleaned_text = text_response.replace("```json", "").replace("```", "").strip()
             json.loads(cleaned_text)
             return cleaned_text

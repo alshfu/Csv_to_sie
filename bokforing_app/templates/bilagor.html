@@ -13,7 +13,7 @@
                     <button class="btn btn-primary" type="submit">Ladda upp</button>
                 </div>
                 <div class="progress mt-2" style="display: none;">
-                    <div class="progress-bar" role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                    <div class="progress-bar" role="progressbar" style="width: 0%;">0%</div>
                 </div>
             </form>
         </div>
@@ -27,12 +27,12 @@
                     <th>Filnamn</th>
                     <th>Status</th>
                     <th>Kopplad till Ver.</th>
-                    <th>Åtgärd</th>
+                    <th class="text-end">Åtgärd</th>
                 </tr>
             </thead>
             <tbody id="bilagor-table-body">
                 {% for bilaga in all_bilagor %}
-                    <tr id="bilaga-row-{{ bilaga.id }}">
+                    <tr id="bilaga-row-{{ bilaga.id }}" data-bilaga-id="{{ bilaga.id }}" data-trans-id="{{ bilaga.bank_transaction_id }}">
                         <td>
                             <a href="{{ url_for('static', filename='uploads/' + bilaga.filepath) }}" target="_blank">
                                 <i class="bi bi-file-earmark-text" style="font-size: 1.5rem;"></i>
@@ -48,43 +48,241 @@
                         </td>
                         <td>
                             {% if bilaga.bank_transaction_id %}
-                                <a href="#">{{ bilaga.bank_transaction_id }}</a>
+                                <a href="#" class="open-ver-link">{{ bilaga.bank_transaction_id }}</a>
                             {% else %}
                                 -
                             {% endif %}
                         </td>
-                        <td>
-                            <button class="btn btn-sm btn-outline-danger delete-bilaga-btn" data-bilaga-id="{{ bilaga.id }}" title="Ta bort bilaga">
+                        <td class="text-end">
+                            <button class="btn btn-sm btn-outline-primary bokfor-btn">
+                                {% if bilaga.bank_transaction_id %}Redigera{% else %}Bokför{% endif %}
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger delete-bilaga-btn" title="Ta bort bilaga">
                                 <i class="bi bi-trash"></i>
                             </button>
                         </td>
-                    </tr>
-                {% else %}
-                    <tr>
-                        <td colspan="5" class="text-center">Inga bilagor har laddats upp.</td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    {% include '_verifikation_modal.html' %}
 {% endblock %}
 
 {% block scripts %}
 <script>
+// All JavaScript for the unified modal is now included here.
+// This avoids having multiple, separate JS files and keeps logic with its template.
 document.addEventListener('DOMContentLoaded', function() {
+    const companyId = {{ company.id }};
+    const kontoplan = {{ kontoplan|tojson }};
+    const verifikationModal = new bootstrap.Modal(document.getElementById('verifikationModal'));
+    const modalForm = document.getElementById('verifikationForm');
+    const entriesContainer = document.getElementById('entries-container');
+    const tableBody = document.getElementById('bilagor-table-body');
+
+    // --- Unified Modal Logic ---
+    function createEntryRow(entry = {}) {
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 entry-row';
+        row.innerHTML = `
+            <div class="col-md-5"><select class="form-select konto-select" name="konto">${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}</select></div>
+            <div class="col-md-3"><input type="number" class="form-control debet-input" name="debet" placeholder="Debet" value="${entry.debet || ''}" step="0.01"></div>
+            <div class="col-md-3"><input type="number" class="form-control kredit-input" name="kredit" placeholder="Kredit" value="${entry.kredit || ''}" step="0.01"></div>
+            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger remove-entry-row"><i class="bi bi-trash"></i></button></div>
+        `;
+        entriesContainer.appendChild(row);
+        new TomSelect(row.querySelector('.konto-select'), { create: false, sortField: { field: "text", direction: "asc" } });
+    }
+
+    function updateTotals() {
+        let totalDebet = 0, totalKredit = 0;
+        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            totalDebet += parseFloat(row.querySelector('.debet-input').value) || 0;
+            totalKredit += parseFloat(row.querySelector('.kredit-input').value) || 0;
+        });
+        document.getElementById('total-debet').textContent = totalDebet.toFixed(2);
+        document.getElementById('total-kredit').textContent = totalKredit.toFixed(2);
+        const balance = totalDebet - totalKredit;
+        const balanceEl = document.getElementById('balance');
+        balanceEl.textContent = balance.toFixed(2);
+        balanceEl.classList.toggle('text-danger', balance.toFixed(2) != '0.00');
+        balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
+    }
+
+    async function openModalForTransaction(transId) {
+        if (!transId) return;
+        const response = await fetch(`/api/verifikation/${transId}`);
+        const data = await response.json();
+        
+        document.getElementById('modal-trans-id').value = data.id;
+        document.getElementById('verifikationModalLabel').textContent = `Redigera verifikation ${data.id}`;
+        document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
+        document.getElementById('modal-referens').value = data.referens;
+        
+        entriesContainer.innerHTML = '';
+        data.entries.forEach(entry => createEntryRow(entry));
+        updateTotals();
+
+        const bankEventInfo = document.getElementById('modal-bank-event-info');
+        if (data.bank_event) {
+            bankEventInfo.style.display = 'block';
+            document.getElementById('bank-event-date').textContent = data.bank_event.date;
+            document.getElementById('bank-event-ref').textContent = data.bank_event.ref;
+            document.getElementById('bank-event-amount').textContent = data.bank_event.amount;
+        } else {
+            bankEventInfo.style.display = 'none';
+        }
+
+        const attachmentsList = document.getElementById('attachments-list');
+        attachmentsList.innerHTML = '';
+        if (data.attachments && data.attachments.length > 0) {
+            data.attachments.forEach(att => {
+                attachmentsList.innerHTML += `<li class="list-group-item"><a href="${att.url}" target="_blank">${att.filename}</a></li>`;
+            });
+        } else {
+            attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
+        }
+        
+        verifikationModal.show();
+    }
+
+    function openModalForNew(bilagaData = {}) {
+        modalForm.reset();
+        document.getElementById('modal-trans-id').value = '';
+        document.getElementById('verifikationModalLabel').textContent = 'Skapa ny verifikation';
+        entriesContainer.innerHTML = '';
+        
+        // Pre-fill from bilaga if available
+        document.getElementById('modal-bokforingsdag').value = bilagaData.fakturadatum || new Date().toISOString().split('T')[0];
+        document.getElementById('modal-referens').value = `Faktura ${bilagaData.fakturanr || ''}`.trim();
+        
+        createEntryRow({ konto: '1930', kredit: bilagaData.brutto_amount || '' });
+        createEntryRow({ konto: bilagaData.suggested_konto || '', debet: bilagaData.netto_amount || '' });
+        if (bilagaData.moms_amount) {
+            createEntryRow({ konto: '2641', debet: bilagaData.moms_amount });
+        }
+
+        updateTotals();
+        document.getElementById('modal-bank-event-info').style.display = 'none';
+        
+        const attachmentsList = document.getElementById('attachments-list');
+        if (bilagaData.id) {
+            attachmentsList.innerHTML = `<li class="list-group-item"><a href="${bilagaData.url}" target="_blank">${bilagaData.filename}</a> (Denna bilaga kommer att kopplas)</li>`;
+        } else {
+            attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
+        }
+
+        verifikationModal.show();
+    }
+
+    // --- Event Listeners ---
+    tableBody.addEventListener('click', async (e) => {
+        const row = e.target.closest('tr');
+        const transId = row.dataset.transId;
+
+        if (e.target.closest('.bokfor-btn') || e.target.closest('.open-ver-link')) {
+            e.preventDefault();
+            if (transId && transId !== 'None') {
+                openModalForTransaction(transId);
+            } else {
+                // Fetch bilaga data to pre-fill the new verification
+                const bilagaId = row.dataset.bilagaId;
+                // This is a simplified approach. A real implementation might fetch bilaga details via API.
+                // For now, we'll just open a blank new modal.
+                openModalForNew();
+            }
+        }
+
+        if (e.target.closest('.delete-bilaga-btn')) {
+            const bilagaId = row.dataset.bilagaId;
+            if (!confirm('Är du säker på att du vill ta bort denna bilaga permanent?')) return;
+            
+            const response = await fetch(`/api/bilaga/${bilagaId}`, { method: 'DELETE' });
+            if (response.ok) {
+                row.remove();
+                alert('Bilagan har tagits bort.');
+            } else {
+                alert('Kunde inte ta bort bilagan.');
+            }
+        }
+    });
+
+    // Add other modal-related event listeners (save, delete, add row, etc.)
+    // These are identical to the ones in verifikationer.html and transactions.html
+    // In a real-world scenario, this shared JS would be in its own file.
+    document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
+    entriesContainer.addEventListener('click', e => {
+        if (e.target.closest('.remove-entry-row')) {
+            e.target.closest('.entry-row').remove();
+            updateTotals();
+        }
+    });
+    entriesContainer.addEventListener('input', e => {
+        if (e.target.classList.contains('debet-input') || e.target.classList.contains('kredit-input')) {
+            updateTotals();
+        }
+    });
+
+    modalForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const transId = document.getElementById('modal-trans-id').value;
+        const url = transId ? `/api/verifikation/${transId}` : `/api/company/${companyId}/verifikation`;
+        const method = transId ? 'PUT' : 'POST';
+
+        const formData = new FormData(modalForm);
+        const data = {
+            bokforingsdag: formData.get('bokforingsdag'),
+            referens: formData.get('referens'),
+            entries: []
+        };
+
+        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            const konto = row.querySelector('.konto-select').value;
+            const debet = parseFloat(row.querySelector('.debet-input').value) || 0;
+            const kredit = parseFloat(row.querySelector('.kredit-input').value) || 0;
+            if (konto && (debet > 0 || kredit > 0)) {
+                data.entries.push({ konto, debet, kredit });
+            }
+        });
+
+        if (parseFloat(document.getElementById('balance').textContent).toFixed(2) != '0.00') {
+            alert('Fel: Debet och Kredit måste vara i balans.');
+            return;
+        }
+        if (data.entries.length === 0) {
+            alert('Fel: Du måste ha minst en bokföringspost.');
+            return;
+        }
+
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
+
+            verifikationModal.hide();
+            alert('Verifikationen har sparats!');
+            location.reload();
+        } catch (error) {
+            alert(`Kunde inte spara verifikationen: ${error.message}`);
+        }
+    });
+
+    // Upload form logic
     const uploadForm = document.getElementById('multi-upload-form');
     const progressBar = document.querySelector('.progress-bar');
     const progressContainer = document.querySelector('.progress');
-    const tableBody = document.getElementById('bilagor-table-body');
 
     uploadForm.addEventListener('submit', function(e) {
         e.preventDefault();
-        
         const formData = new FormData(uploadForm);
         const xhr = new XMLHttpRequest();
-
         xhr.open('POST', uploadForm.action, true);
-
         xhr.upload.onprogress = function(e) {
             if (e.lengthComputable) {
                 const percentComplete = (e.loaded / e.total) * 100;
@@ -93,64 +291,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 progressContainer.style.display = 'block';
             }
         };
-
         xhr.onload = function() {
             progressContainer.style.display = 'none';
             if (xhr.status === 200) {
-                const newFiles = JSON.parse(xhr.responseText);
-                newFiles.forEach(file => {
-                    const newRow = `
-                        <tr id="bilaga-row-${file.id}">
-                            <td>
-                                <a href="${file.url}" target="_blank">
-                                    <i class="bi bi-file-earmark-text" style="font-size: 1.5rem;"></i>
-                                </a>
-                            </td>
-                            <td>${file.filename}</td>
-                            <td><span class="badge bg-secondary">Fri</span></td>
-                            <td>-</td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-danger delete-bilaga-btn" data-bilaga-id="${file.id}" title="Ta bort bilaga">
-                                    <i class="bi bi-trash"></i>
-                                </button>
-                            </td>
-                        </tr>
-                    `;
-                    tableBody.insertAdjacentHTML('afterbegin', newRow);
-                });
+                location.reload();
             } else {
                 alert('Ett fel inträffade vid uppladdningen.');
             }
         };
-
         xhr.send(formData);
-    });
-
-    tableBody.addEventListener('click', async function(e) {
-        const deleteBtn = e.target.closest('.delete-bilaga-btn');
-        if (!deleteBtn) return;
-
-        const bilagaId = deleteBtn.dataset.bilagaId;
-        if (!confirm('Är du säker på att du vill ta bort denna bilaga permanent?')) {
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/bilaga/${bilagaId}`, {
-                method: 'DELETE'
-            });
-            const result = await response.json();
-            if (!response.ok) {
-                throw new Error(result.error || 'Ett okänt fel inträffade.');
-            }
-            
-            document.getElementById(`bilaga-row-${bilagaId}`).remove();
-            alert('Bilagan har tagits bort.');
-
-        } catch (error) {
-            console.error('Fel vid borttagning av bilaga:', error);
-            alert(`Kunde inte ta bort bilagan: ${error.message}`);
-        }
     });
 });
 </script>

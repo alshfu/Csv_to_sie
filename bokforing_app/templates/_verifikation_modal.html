@@ -1,0 +1,69 @@
+<!-- /templates/_verifikation_modal.html -->
+<div class="modal fade" id="verifikationModal" tabindex="-1" aria-labelledby="verifikationModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="verifikationModalLabel">Redigera verifikation</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
+            </div>
+            <div class="modal-body">
+                <form id="verifikationForm">
+                    <input type="hidden" id="modal-trans-id" name="trans_id">
+                    <div class="row">
+                        <!-- Vänster kolumn: Kontering -->
+                        <div class="col-md-8">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="modal-bokforingsdag" class="form-label">Bokföringsdag</label>
+                                    <input type="date" class="form-control" id="modal-bokforingsdag" name="bokforingsdag" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="modal-referens" class="form-label">Referens / Beskrivning</label>
+                                    <input type="text" class="form-control" id="modal-referens" name="referens" required>
+                                </div>
+                            </div>
+
+                            <hr>
+                            <h6>Bokföringsposter</h6>
+                            <div id="entries-container">
+                                <!-- Rader för bokföringsposter läggs till här -->
+                            </div>
+                            <button type="button" id="add-entry-row" class="btn btn-sm btn-outline-secondary mt-2">
+                                <i class="bi bi-plus"></i> Lägg till rad
+                            </button>
+
+                            <div class="d-flex justify-content-between mt-3 fw-bold">
+                                <span>Total Debet: <span id="total-debet">0.00</span></span>
+                                <span>Total Kredit: <span id="total-kredit">0.00</span></span>
+                                <span>Balans: <span id="balance" class="text-danger">0.00</span></span>
+                            </div>
+                        </div>
+
+                        <!-- Höger kolumn: Info & Bilagor -->
+                        <div class="col-md-4 bg-light p-3 rounded">
+                            <div id="modal-bank-event-info" class="mb-3" style="display: none;">
+                                <h5><i class="bi bi-bank me-2"></i>Bankhändelse</h5>
+                                <p class="mb-1"><strong>Datum:</strong> <span id="bank-event-date"></span></p>
+                                <p class="mb-1"><strong>Referens:</strong> <span id="bank-event-ref"></span></p>
+                                <p class="mb-1"><strong>Belopp:</strong> <span id="bank-event-amount"></span></p>
+                            </div>
+
+                            <div id="modal-attachments-section">
+                                <h5><i class="bi bi-paperclip me-2"></i>Bilagor</h5>
+                                <ul id="attachments-list" class="list-group">
+                                    <!-- Bilagor listas här -->
+                                </ul>
+                                <!-- Knapp för att koppla fler bilagor kan läggas till här -->
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger me-auto" id="delete-ver-btn-modal">Radera Verifikation</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
+                <button type="submit" form="verifikationForm" class="btn btn-primary">Spara</button>
+            </div>
+        </div>
+    </div>
+</div>
