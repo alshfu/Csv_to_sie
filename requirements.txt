@@ -2,7 +2,6 @@ Flask
 Flask-SQLAlchemy
 Flask-Migrate
 python-dotenv
-httpx
-httpx-socks
+requests[socks]
 pydantic
 google-generativeai

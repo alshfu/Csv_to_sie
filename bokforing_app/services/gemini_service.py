@@ -2,7 +2,7 @@
 import os
 import json
 from typing import Dict
-import httpx
+import requests
 from flask import current_app
 from bokforing_app.models import BankTransaction
 from bokforing_app.services.accounting_config import KONTOPLAN
@@ -14,25 +14,17 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        return {"error": "GEMINI_API_KEY är inte satt i systemmiljön."}
+        error_msg = "GEMINI_API_KEY är inte satt i systemmiljön."
+        current_app.logger.error(error_msg)
+        return {"error": error_msg}
 
     proxy_url = os.getenv("SOCKS5_PROXY")
-    transport = None
+    proxies = None
     if proxy_url:
-        try:
-            from httpx_socks import SyncSocks5Transport
-            parts = proxy_url.replace("socks5://", "").split(":")
-            host = parts[0]
-            port = int(parts[1]) if len(parts) > 1 else 1080
-            transport = SyncSocks5Transport(host=host, port=port)
-        except ImportError:
-            current_app.logger.warning(
-                "SOCKS5_PROXY är satt men 'httpx-socks' är inte installerat. "
-                "Fortsätter utan proxy. Kör 'pip install httpx-socks' för att aktivera proxy."
-            )
-            transport = None
-        except Exception as e:
-            return {"error": f"Kunde inte konfigurera SOCKS5-proxy: {e}"}
+        proxies = {
+            "http": proxy_url,
+            "https": proxy_url,
+        }
 
     kontoplan_str = "\n".join([f"{k} - {v}" for k, v in KONTOPLAN.items()])
     original_amount = transaction.belopp # Använd det ursprungliga beloppet med tecken
@@ -122,27 +114,32 @@ def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_r
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
     try:
-        with httpx.Client(transport=transport) as client:
-            response = client.post(url, json=payload, timeout=90)
-            response.raise_for_status()
+        response = requests.post(url, json=payload, proxies=proxies, timeout=90)
+        response.raise_for_status()
 
-            api_response = response.json()
-            text_response = api_response['candidates'][0]['content']['parts'][0]['text']
-            
-            cleaned_text = text_response.replace("```json", "").replace("```", "").strip()
-            parsed_json = json.loads(cleaned_text)
-            if 'suggestion' not in parsed_json or 'rule' not in parsed_json:
-                raise json.JSONDecodeError("Svaret saknar 'suggestion' eller 'rule'.", cleaned_text, 0)
-            
-            return parsed_json
+        api_response = response.json()
+        text_response = api_response['candidates'][0]['content']['parts'][0]['text']
+        
+        cleaned_text = text_response.replace("```json", "").replace("```", "").strip()
+        parsed_json = json.loads(cleaned_text)
+        if 'suggestion' not in parsed_json or 'rule' not in parsed_json:
+            raise json.JSONDecodeError("Svaret saknar 'suggestion' eller 'rule'.", cleaned_text, 0)
+        
+        return parsed_json
 
-    except httpx.RequestError as e:
-        return {"error": f"Anrop till Gemini API misslyckades: {e}"}
-    except httpx.HTTPStatusError as e:
-        return {"error": f"Gemini API returnerade ett fel: {e.response.status_code} {e.response.text}"}
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Anrop till Gemini API misslyckades: {e}"
+        current_app.logger.error(error_msg)
+        return {"error": error_msg}
     except (KeyError, IndexError):
-        return {"error": f"Oväntat API-svarformat: {response.text if 'response' in locals() else 'Inget svar'}"}
+        error_msg = f"Oväntat API-svarformat: {response.text if 'response' in locals() else 'Inget svar'}"
+        current_app.logger.error(error_msg)
+        return {"error": error_msg}
     except json.JSONDecodeError as e:
-        return {"error": f"AI returnerade ogiltig JSON: {e.msg} - Svar: {e.doc}"}
+        error_msg = f"AI returnerade ogiltig JSON: {e.msg} - Svar: {e.doc}"
+        current_app.logger.error(error_msg)
+        return {"error": error_msg}
     except Exception as e:
-        return {"error": f"Ett oväntat fel inträffade: {str(e)}"}
+        error_msg = f"Ett oväntat fel inträffade: {str(e)}"
+        current_app.logger.error(error_msg)
+        return {"error": error_msg}

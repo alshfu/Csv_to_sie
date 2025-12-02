@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 import httpx
 import base64
 
+
 # --- 1. Pydantic-modeller ---
 
 class Kund(BaseModel):
@@ -13,11 +14,13 @@ class Kund(BaseModel):
     orgnr: Optional[str] = None
     adress: Optional[str] = None
 
+
 class Saljare(BaseModel):
     namn: Optional[str] = None
     orgnr: Optional[str] = None
     momsregnr: Optional[str] = None
     bankgiro: Optional[str] = None
+
 
 class InvoiceDataStrict(BaseModel):
     fakturanr: Optional[str] = None
@@ -31,6 +34,7 @@ class InvoiceDataStrict(BaseModel):
     kund: Optional[Kund] = None
     saljare: Optional[Saljare] = None
     information: Optional[str] = None
+
 
 # --- 2. Huvudfunktion för att anropa Gemini direkt med httpx ---
 
@@ -92,7 +96,7 @@ def extract_exact_json_from_pdf(pdf_path: str) -> str:
 
             api_response = response.json()
             text_response = api_response['candidates'][0]['content']['parts'][0]['text']
-            
+
             # Rensa bort markdown och validera JSON
             cleaned_text = text_response.replace("```json", "").replace("```", "").strip()
             json.loads(cleaned_text)
@@ -108,6 +112,7 @@ def extract_exact_json_from_pdf(pdf_path: str) -> str:
         return json.dumps({"error": f"AI returned invalid JSON: {text_response}"})
     except Exception as e:
         return json.dumps({"error": f"An unexpected error occurred: {str(e)}"})
+
 
 # --- 3. Exempel ---
 if __name__ == "__main__":
