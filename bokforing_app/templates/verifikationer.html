@@ -76,7 +76,7 @@
         </div>
     </div>
 
-    {% include '_verifikation_modal.html' %}
+    {% include '_generic_entry_modal.html' %}
 {% endblock %}
 
 {% block scripts %}
@@ -84,10 +84,15 @@
 document.addEventListener('DOMContentLoaded', function() {
     const companyId = {{ company.id }};
     const kontoplan = {{ kontoplan|tojson }};
-    const verifikationModal = new bootstrap.Modal(document.getElementById('verifikationModal'));
-    const modalForm = document.getElementById('verifikationForm');
+    const genericEntryModal = new bootstrap.Modal(document.getElementById('genericEntryModal'));
+    const modalForm = document.getElementById('genericEntryForm');
     const entriesContainer = document.getElementById('entries-container');
     const tableBody = document.getElementById('verifikationer-table-body');
+    const modalEntryId = document.getElementById('modal-entry-id');
+    const modalEntryType = document.getElementById('modal-entry-type');
+    const genericEntryModalLabel = document.getElementById('genericEntryModalLabel');
+    const deleteEntryBtnModal = document.getElementById('delete-entry-btn-modal');
+
 
     // --- Table Sorting Logic ---
     const sortableHeaders = document.querySelectorAll('.sortable');
@@ -189,13 +194,30 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Funktion för att fylla modalen med data
-    function populateModal(data) {
-        document.getElementById('modal-trans-id').value = data.id;
-        document.getElementById('verifikationModalLabel').textContent = `Redigera verifikation ${data.id}`;
+    async function populateGenericEntryModal(entryId, type) {
+        modalForm.reset();
+        entriesContainer.innerHTML = '';
+        modalEntryId.value = entryId;
+        modalEntryType.value = type;
+        genericEntryModalLabel.textContent = `Redigera ${type === 'verifikation' ? 'verifikation' : type} ${entryId}`;
+
+        let data;
+        if (entryId) {
+            const response = await fetch(`/api/verifikation/${entryId}`);
+            data = await response.json();
+            deleteEntryBtnModal.style.display = 'block';
+        } else { // New entry
+            data = {
+                bokforingsdag: new Date().toISOString().slice(0, 10),
+                referens: '',
+                entries: []
+            };
+            deleteEntryBtnModal.style.display = 'none';
+        }
+        
         document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
         document.getElementById('modal-referens').value = data.referens;
 
-        entriesContainer.innerHTML = '';
         data.entries.forEach(entry => createEntryRow(entry));
         if (data.entries.length === 0) {
             createEntryRow();
@@ -248,16 +270,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Öppna modal för ny verifikation
     document.getElementById('new-ver-btn').addEventListener('click', () => {
-        modalForm.reset();
-        document.getElementById('modal-trans-id').value = '';
-        document.getElementById('verifikationModalLabel').textContent = 'Skapa ny verifikation';
-        entriesContainer.innerHTML = '';
-        createEntryRow();
-        createEntryRow();
-        updateTotals();
-        document.getElementById('modal-bank-event-info').style.display = 'none';
-        document.getElementById('attachments-list').innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
-        verifikationModal.show();
+        populateGenericEntryModal(null, 'verifikation'); // Pass null for new entry
+        genericEntryModal.show();
     });
 
     // Öppna modal för att redigera befintlig verifikation
@@ -265,40 +279,39 @@ document.addEventListener('DOMContentLoaded', function() {
         const row = e.target.closest('.ver-row');
         if (row) {
             const transId = row.dataset.transId;
-            const response = await fetch(`/api/verifikation/${transId}`);
-            const data = await response.json();
-            populateModal(data);
-            verifikationModal.show();
+            await populateGenericEntryModal(transId, 'verifikation');
+            genericEntryModal.show();
         }
     });
 
     // Hantera borttagning från modalen
-    document.getElementById('delete-ver-btn-modal').addEventListener('click', async function() {
-        const transId = document.getElementById('modal-trans-id').value;
-        if (!transId || !confirm(`Är du säker på att du vill radera verifikation ${transId} permanent?`)) {
+    deleteEntryBtnModal.addEventListener('click', async function() {
+        const entryId = modalEntryId.value;
+        if (!entryId || !confirm(`Är du säker på att du vill radera post ${entryId} permanent?`)) {
             return;
         }
 
         try {
-            const response = await fetch(`/api/verifikation/${transId}`, { method: 'DELETE' });
+            const response = await fetch(`/api/verifikation/${entryId}`, { method: 'DELETE' });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
 
-            verifikationModal.hide();
-            alert('Verifikationen har raderats.');
+            genericEntryModal.hide();
+            alert('Posten har raderats.');
             location.reload();
 
         } catch (error) {
-            alert(`Kunde inte radera verifikationen: ${error.message}`);
+            alert(`Kunde inte radera posten: ${error.message}`);
         }
     });
 
     // Hantera formulär-submit (spara/skapa)
     modalForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        const transId = document.getElementById('modal-trans-id').value;
-        const url = transId ? `/api/verifikation/${transId}` : `/api/company/${companyId}/verifikation`;
-        const method = transId ? 'PUT' : 'POST';
+        const entryId = modalEntryId.value;
+        const entryType = modalEntryType.value;
+        const url = entryId ? `/api/verifikation/${entryId}` : `/api/company/${companyId}/verifikation`;
+        const method = entryId ? 'PUT' : 'POST';
 
         const formData = new FormData(modalForm);
         const data = {
@@ -335,7 +348,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
 
-            verifikationModal.hide();
+            genericEntryModal.hide();
             alert('Verifikationen har sparats!');
             location.reload();
 

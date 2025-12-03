@@ -3,13 +3,16 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="genericEntryModalLabel">Redigera post</h5> {# This will be dynamically updated by JS #}
+                <h5 class="modal-title" id="genericEntryModalLabel">Redigera post</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
             </div>
             <div class="modal-body">
                 <form id="genericEntryForm">
                     <input type="hidden" id="modal-entry-id" name="entry_id">
-                    <input type="hidden" id="modal-entry-type" name="entry_type"> {# To distinguish between verifikation, transaction, invoice #}
+                    <input type="hidden" id="modal-entry-type" name="entry_type">
+                    <input type="hidden" id="modal-invoice-ids" name="invoice_ids">
+                    <input type="hidden" id="modal-attachment-ids" name="attachment_ids">
+                    
                     <div class="row">
                         <!-- Vänster kolumn: Kontering -->
                         <div class="col-md-8">
@@ -23,45 +26,65 @@
                                     <input type="text" class="form-control" id="modal-referens" name="referens" required>
                                 </div>
                             </div>
-
                             <hr>
                             <h6>Bokföringsposter</h6>
-                            <div id="entries-container">
-                                <!-- Rader för bokföringsposter läggs till här -->
-                            </div>
+                            <div id="entries-container"></div>
                             <button type="button" id="add-entry-row" class="btn btn-sm btn-outline-secondary mt-2">
                                 <i class="bi bi-plus"></i> Lägg till rad
                             </button>
-
                             <div class="d-flex justify-content-between mt-3 fw-bold">
                                 <span>Total Debet: <span id="total-debet">0.00</span></span>
                                 <span>Total Kredit: <span id="total-kredit">0.00</span></span>
                                 <span>Balans: <span id="balance" class="text-danger">0.00</span></span>
                             </div>
                         </div>
-
-                        <!-- Höger kolumn: Info & Bilagor -->
+                        <!-- Höger kolumn: Info & Underlag -->
                         <div class="col-md-4 bg-light p-3 rounded">
+                            <!-- Sektion för bankhändelse (visas från transactions.html) -->
                             <div id="modal-bank-event-info" class="mb-3" style="display: none;">
                                 <h5><i class="bi bi-bank me-2"></i>Bankhändelse</h5>
                                 <p class="mb-1"><strong>Datum:</strong> <span id="bank-event-date"></span></p>
                                 <p class="mb-1"><strong>Referens:</strong> <span id="bank-event-ref"></span></p>
                                 <p class="mb-1"><strong>Belopp:</strong> <span id="bank-event-amount"></span></p>
                             </div>
-
-                            <div id="modal-attachments-section">
-                                <h5><i class="bi bi-paperclip me-2"></i>Bilagor</h5>
-                                <ul id="attachments-list" class="list-group">
-                                    <!-- Bilagor listas här -->
-                                </ul>
-                                <!-- Knapp för att koppla fler bilagor kan läggas till här -->
+                            
+                            <!-- Sektion för fakturadetaljer (visas från invoices.html) -->
+                            <div id="modal-invoice-info" class="mb-3" style="display: none;">
+                                <h5><i class="bi bi-file-earmark-text me-2"></i>Fakturadetaljer</h5>
+                                <p class="mb-1"><strong>Fakturanr:</strong> <span id="invoice-info-number"></span></p>
+                                <p class="mb-1"><strong>Fakturadatum:</strong> <span id="invoice-info-date"></span></p>
+                                <p class="mb-1"><strong>Betaldatum:</strong> <span id="invoice-info-paid-at"></span></p>
+                                <p class="mb-1"><strong>Summa:</strong> <span id="invoice-info-sum"></span> kr</p>
+                                <p class="mb-1"><strong>Moms:</strong> <span id="invoice-info-tax"></span> kr</p>
+                                <p class="mb-1"><strong>Netto:</strong> <span id="invoice-info-net"></span> kr</p>
+                                <button type="button" id="mark-paid-btn" class="btn btn-success btn-sm mt-2" style="display: none;">
+                                    <i class="bi bi-check-circle"></i> Markera som betald
+                                </button>
                             </div>
+
+                            <!-- Sektion för att koppla underlag (visas från transactions.html) -->
+                            <div id="modal-underlag-section" class="mb-3" style="display: none;">
+                                <h5><i class="bi bi-paperclip me-2"></i>Koppla underlag</h5>
+                                <div class="mb-2">
+                                    <label for="invoice-select" class="form-label">Koppla fakturor</label>
+                                    <select id="invoice-select" multiple></select>
+                                </div>
+                                <div>
+                                    <label for="attachment-select" class="form-label">Koppla bilagor</label>
+                                    <select id="attachment-select" multiple></select>
+                                </div>
+                            </div>
+
+                            <h6>Valda underlag:</h6>
+                            <ul id="underlag-list" class="list-group">
+                                <!-- Valda underlag visas här -->
+                            </ul>
                         </div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-danger me-auto" id="delete-entry-btn-modal">Radera post</button>
+                <button type="button" class="btn btn-danger me-auto" id="delete-entry-btn-modal" style="display: none;">Radera post</button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
                 <button type="submit" form="genericEntryForm" class="btn btn-primary">Spara</button>
             </div>

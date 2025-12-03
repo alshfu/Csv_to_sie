@@ -4,12 +4,13 @@
 <div class="container mt-4">
     <h1 class="mb-4">Momsrapport för {{ company.name }}</h1>
 
+    <!-- Filter Card -->
     <div class="card mb-4">
         <div class="card-header">
             Filtrera momsrapport
         </div>
         <div class="card-body">
-            <form method="GET" action="{{ url_for('main.momsrapport_page', company_id=company.id) }}">
+            <form method="GET" action="{{ url_for('main.momsrapport_page', company_id=company.id) }}" id="moms-form">
                 <div class="row g-3 align-items-end">
                     <div class="col-md-3">
                         <label for="year" class="form-label">År:</label>
@@ -55,13 +56,17 @@
         </div>
     </div>
 
+    <!-- Momsrapport Table -->
     {% if moms_data %}
         <div class="card mb-4">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between align-items-center">
                 Momsrapport för {{ report_period }}
+                <a href="{{ url_for('main.export_moms_xml', company_id=company.id, year=selected_year, quarter=selected_quarter, month=selected_month) }}" class="btn btn-success">
+                    <i class="bi bi-download me-2"></i>Exportera som XML
+                </a>
             </div>
             <div class="card-body">
-                <table class="table table-striped table-hover">
+                <table class="table table-hover">
                     <thead>
                         <tr>
                             <th>Momsbeskrivning</th>
@@ -70,14 +75,16 @@
                             <th class="text-end">Netto moms (SEK)</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        {% for description, data in moms_data.items() %}
-                            <tr>
-                                <td>{{ description }}</td>
+                    <tbody id="moms-table-body">
+                        {% for konto_nr, data in moms_data.items() %}
+                            {% if data.utgaende > 0 or data.ingende > 0 %}
+                            <tr class="moms-row" data-konto="{{ konto_nr }}" style="cursor: pointer;">
+                                <td>{{ data.description }}</td>
                                 <td class="text-end">{{ data.utgaende | currency }}</td>
                                 <td class="text-end">{{ data.ingende | currency }}</td>
                                 <td class="text-end">{{ (data.utgaende - data.ingende) | currency }}</td>
                             </tr>
+                            {% endif %}
                         {% endfor %}
                     </tbody>
                     <tfoot>
@@ -89,6 +96,7 @@
                         </tr>
                     </tfoot>
                 </table>
+                <small class="text-muted">Klicka på en rad för att se underliggande verifikationer.</small>
             </div>
         </div>
     {% else %}
@@ -97,6 +105,215 @@
         </div>
     {% endif %}
 
-    <a href="{{ url_for('main.bokforing_page', company_id=company.id) }}" class="btn btn-secondary">Tillbaka till företag</a>
-</div>
+    <!-- Modal for Verifikationer List -->
+    <div class="modal fade" id="verifikationerListModal" tabindex="-1" aria-labelledby="verifikationerListModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="verifikationerListModalLabel">Underliggande Verifikationer</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <table class="table table-hover">
+              <thead>
+                <tr>
+                  <th>Datum</th>
+                  <th>Referens</th>
+                  <th class="text-end">Belopp (SEK)</th>
+                </tr>
+              </thead>
+              <tbody id="modal-verifikationer-body">
+                <!-- Rows will be inserted here by JavaScript -->
+              </tbody>
+            </table>
+            <small class="text-muted">Klicka på en rad för att se hela verifikationen.</small>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Stäng</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+{% include '_generic_entry_modal.html' %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const companyId = {{ company.id }};
+    const kontoplan = {{ KONTOPLAN|tojson }};
+
+    // --- MODAL 1: Verifikationer List ---
+    const momsTableBody = document.getElementById('moms-table-body');
+    const verifikationerListModalElement = document.getElementById('verifikationerListModal');
+    const verifikationerListModal = new bootstrap.Modal(verifikationerListModalElement);
+    const modalVerifikationerBody = document.getElementById('modal-verifikationer-body');
+    const verifikationerListModalLabel = document.getElementById('verifikationerListModalLabel');
+
+    // --- MODAL 2: Full Verifikation Editor ---
+    const genericEntryModalElement = document.getElementById('genericEntryModal');
+    const genericEntryModal = new bootstrap.Modal(genericEntryModalElement);
+    const modalForm = document.getElementById('genericEntryForm');
+    const entriesContainer = document.getElementById('entries-container');
+
+    // --- Open Verifikationer List Modal ---
+    momsTableBody.addEventListener('click', function (event) {
+        const row = event.target.closest('.moms-row');
+        if (!row) return;
+
+        const konto = row.dataset.konto;
+        const description = row.cells[0].textContent;
+        const year = document.getElementById('year').value;
+        const quarter = document.getElementById('quarter').value;
+        const month = document.getElementById('month').value;
+
+        if (!konto) return;
+
+        verifikationerListModalLabel.textContent = `Verifikationer för ${description}`;
+        const url = new URL(`{{ url_for('api.get_moms_verifikationer', company_id=company.id) }}`, window.location.origin);
+        url.searchParams.append('konto', konto);
+        url.searchParams.append('year', year);
+        if (quarter) url.searchParams.append('quarter', quarter);
+        if (month) url.searchParams.append('month', month);
+
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                modalVerifikationerBody.innerHTML = '';
+                if (data.length === 0) {
+                    modalVerifikationerBody.innerHTML = '<tr><td colspan="3" class="text-center">Inga verifikationer hittades.</td></tr>';
+                } else {
+                    data.forEach(ver => {
+                        const tr = document.createElement('tr');
+                        tr.className = 'ver-detail-row';
+                        tr.style.cursor = 'pointer';
+                        tr.dataset.transId = ver.id;
+                        tr.innerHTML = `
+                            <td>${ver.bokforingsdag}</td>
+                            <td>${ver.referens}</td>
+                            <td class="text-end">${parseFloat(ver.belopp).toLocaleString('sv-SE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        `;
+                        modalVerifikationerBody.appendChild(tr);
+                    });
+                }
+                verifikationerListModal.show();
+            })
+            .catch(error => console.error('Error fetching verifikationer:', error));
+    });
+
+    // --- Open Full Verifikation Modal from List Modal ---
+    modalVerifikationerBody.addEventListener('click', async function(e) {
+        const row = e.target.closest('.ver-detail-row');
+        if (row) {
+            const transId = row.dataset.transId;
+            const response = await fetch(`/api/verifikation/${transId}`);
+            const data = await response.json();
+            populateGenericEntryModal(data, 'verifikation'); // Pass type 'verifikation'
+            verifikationerListModal.hide(); // Hide the list modal
+            genericEntryModal.show(); // Show the editor modal
+        }
+    });
+
+    // --- Generic Entry Modal Logic (Adapted) ---
+    function populateGenericEntryModal(data, type) {
+        document.getElementById('modal-entry-id').value = data.id;
+        document.getElementById('modal-entry-type').value = type;
+        document.getElementById('genericEntryModalLabel').textContent = `Redigera ${type === 'verifikation' ? 'verifikation' : type}`; // Dynamic title
+        document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
+        document.getElementById('modal-referens').value = data.referens;
+
+        entriesContainer.innerHTML = '';
+        data.entries.forEach(entry => createEntryRow(entry));
+        if (data.entries.length === 0) {
+            createEntryRow();
+            createEntryRow();
+        }
+        updateTotals();
+
+        const bankEventInfo = document.getElementById('modal-bank-event-info');
+        if (data.bank_event) {
+            document.getElementById('bank-event-date').textContent = data.bank_event.date;
+            document.getElementById('bank-event-ref').textContent = data.bank_event.ref;
+            document.getElementById('bank-event-amount').textContent = data.bank_event.amount;
+            bankEventInfo.style.display = 'block';
+        } else {
+            bankEventInfo.style.display = 'none';
+        }
+
+        const attachmentsList = document.getElementById('attachments-list');
+        attachmentsList.innerHTML = '';
+        if (data.attachments && data.attachments.length > 0) {
+            data.attachments.forEach(att => {
+                const li = document.createElement('li');
+                li.className = 'list-group-item';
+                li.innerHTML = `<a href="${att.url}" target="_blank">${att.filename}</a>`;
+                attachmentsList.appendChild(li);
+            });
+        } else {
+            attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
+        }
+    }
+
+    function createEntryRow(entry = {}) {
+        const row = document.createElement('div');
+        row.className = 'row g-2 mb-2 entry-row';
+        row.innerHTML = `
+            <div class="col-md-5">
+                <select class="form-select konto-select" name="konto">
+                    <option value="">Välj konto...</option>
+                    ${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}
+                </select>
+            </div>
+            <div class="col-md-3"><input type="number" class="form-control debet-input" name="debet" placeholder="Debet" value="${entry.debet || ''}" step="0.01"></div>
+            <div class="col-md-3"><input type="number" class="form-control kredit-input" name="kredit" placeholder="Kredit" value="${entry.kredit || ''}" step="0.01"></div>
+            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger remove-entry-row"><i class="bi bi-trash"></i></button></div>
+        `;
+        entriesContainer.appendChild(row);
+        new TomSelect(row.querySelector('.konto-select'), { create: false, sortField: { field: "text", direction: "asc" } });
+    }
+
+    function updateTotals() {
+        let totalDebet = 0, totalKredit = 0;
+        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            totalDebet += parseFloat(row.querySelector('.debet-input').value) || 0;
+            totalKredit += parseFloat(row.querySelector('.kredit-input').value) || 0;
+        });
+        document.getElementById('total-debet').textContent = totalDebet.toFixed(2);
+        document.getElementById('total-kredit').textContent = totalKredit.toFixed(2);
+        const balance = totalDebet - totalKredit;
+        const balanceEl = document.getElementById('balance');
+        balanceEl.textContent = balance.toFixed(2);
+        balanceEl.classList.toggle('text-danger', balance.toFixed(2) != '0.00');
+        balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
+    }
+
+    document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
+    entriesContainer.addEventListener('click', e => {
+        if (e.target.closest('.remove-entry-row')) {
+            e.target.closest('.entry-row').remove();
+            updateTotals();
+        }
+    });
+    entriesContainer.addEventListener('input', e => {
+        if (e.target.classList.contains('debet-input') || e.target.classList.contains('kredit-input')) {
+            updateTotals();
+        }
+    });
+
+    modalForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        // Logic to save verifikation...
+        // This is complex and might require a page reload, so for now we just show the data.
+        // A full implementation would mirror the verifikationer.html save logic.
+        alert("Spara-funktion är inte fullt implementerad i denna vy.");
+    });
+
+    // When the main generic entry modal is closed, check if the list modal should be reshown
+    genericEntryModalElement.addEventListener('hidden.bs.modal', function () {
+        verifikationerListModal.show();
+    });
+});
+</script>
 {% endblock %}

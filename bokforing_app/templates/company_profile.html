@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Företagsprofil - {{ company.name }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">Profil för {{ company.name }}</h1>
+        <a href="{{ url_for('main.bokforing_page', company_id=company.id) }}" class="btn btn-secondary">
+            <i class="bi bi-arrow-left"></i> Tillbaka till översikt
+        </a>
+    </div>
+
+    <form method="POST" action="{{ url_for('main.company_profile', company_id=company.id) }}">
+        <div class="row">
+            <div class="col-lg-8">
+                <!-- Grunduppgifter Card -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Grunduppgifter</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="name" class="form-label">Företagsnamn</label>
+                                <input type="text" class="form-control" id="name" name="name" value="{{ company.name }}" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="org_nummer" class="form-label">Organisationsnummer</label>
+                                <input type="text" class="form-control" id="org_nummer" name="org_nummer" value="{{ company.org_nummer }}" required>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="gata" class="form-label">Gatuadress</label>
+                            <input type="text" class="form-control" id="gata" name="gata" value="{{ company.gata or '' }}">
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="postkod" class="form-label">Postkod</label>
+                                <input type="text" class="form-control" id="postkod" name="postkod" value="{{ company.postkod or '' }}">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="ort" class="form-label">Ort</label>
+                                <input type="text" class="form-control" id="ort" name="ort" value="{{ company.ort or '' }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bokföringsinställningar Card -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Bokföringsinställningar & Integrationer</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="accounting_method" class="form-label">Bokföringsmetod</label>
+                            <select class="form-select" id="accounting_method" name="accounting_method">
+                                <option value="faktura" {% if company.accounting_method == 'faktura' %}selected{% endif %}>Faktureringsmetoden</option>
+                                <option value="kontant" {% if company.accounting_method == 'kontant' %}selected{% endif %}>Kontantmetoden (bokslutsmetoden)</option>
+                            </select>
+                        </div>
+                        <hr>
+                        <h6>Faktura.nu API</h6>
+                        <div class="mb-3">
+                            <label for="fakturanu_key_id" class="form-label">Nyckel-ID</label>
+                            <input type="text" class="form-control" id="fakturanu_key_id" name="fakturanu_key_id" value="{{ company.fakturanu_key_id or '' }}">
+                        </div>
+                        <div class="mb-3">
+                            <label for="fakturanu_password" class="form-label">Lösenord</label>
+                            <input type="password" class="form-control" id="fakturanu_password" name="fakturanu_password" value="{{ company.fakturanu_password or '' }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <!-- Spara-knapp -->
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Spara ändringar</h5>
+                        <p class="card-text">Klicka på knappen nedan för att spara alla ändringar du gjort på denna sida.</p>
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary btn-lg">
+                                <i class="bi bi-save me-2"></i>Spara profil
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

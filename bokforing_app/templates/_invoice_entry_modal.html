@@ -1,0 +1,104 @@
+<!-- /templates/_invoice_entry_modal.html -->
+<div class="modal fade" id="invoiceEntryModal" tabindex="-1" aria-labelledby="invoiceEntryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="invoiceEntryModalLabel">Faktura 62 till PROHYBY AB (559489-8909)</h5> {# Dynamiskt uppdateras via JS med fakturanummer och kundinfo #}
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
+            </div>
+            <div class="modal-body">
+                <form id="invoiceEntryForm">
+                    <input type="hidden" id="modal-entry-id" name="entry_id">
+                    <input type="hidden" id="modal-entry-type" name="entry_type" value="invoice">
+                    <input type="hidden" id="modal-invoice-id" name="invoice_id">
+
+                    <div class="row">
+                        <!-- Vänster kolumn: Kontering & Fakturarader -->
+                        <div class="col-md-8">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="modal-bokforingsdag" class="form-label">Bokföringsdag</label>
+                                    <input type="date" class="form-control" id="modal-bokforingsdag" name="bokforingsdag" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="modal-referens" class="form-label">Referens / Beskrivning</label>
+                                    <input type="text" class="form-control" id="modal-referens" name="referens" required>
+                                </div>
+                            </div>
+
+                            <!-- Fakturarader (flyttad hit för att integrera i vänster kolumn) -->
+                            <h6>Fakturorader</h6>
+                            <table class="table table-sm mb-3">
+                                <thead>
+                                    <tr>
+                                        <th>Produkt</th>
+                                        <th class="text-end">Antal</th>
+                                        <th class="text-end">Pris/enhet</th>
+                                        <th class="text-end">Moms (%)</th>
+                                        <th class="text-end">Summa</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="detail-invoice-rows">
+                                    <!-- Fakturarader fylls i här via JS -->
+                                </tbody>
+                            </table>
+
+                            <hr>
+                            <h6>Bokföringsposter</h6>
+                            <div id="entries-container">
+                                <!-- Rader för bokföringsposter läggs till här -->
+                            </div>
+                            <button type="button" id="add-entry-row" class="btn btn-sm btn-outline-secondary mt-2">
+                                <i class="bi bi-plus"></i> Lägg till rad
+                            </button>
+
+                            <div class="d-flex justify-content-between mt-3 fw-bold">
+                                <span>Total Debet: <span id="total-debet">0.00</span></span>
+                                <span>Total Kredit: <span id="total-kredit">0.00</span></span>
+                                <span>Balans: <span id="balance" class="text-danger">0.00</span></span>
+                            </div>
+                        </div>
+
+                        <!-- Höger kolumn: Info & Bilagor (inklusive Fakturaöversikt) -->
+                        <div class="col-md-4 bg-light p-3 rounded">
+                            <!-- Fakturaöversikt (flyttad hit) -->
+                            <div id="invoice-overview-section" class="mb-3">
+                                <h6><i class="bi bi-file-earmark-text me-2"></i>Fakturaöversikt</h6>
+                                <p class="mb-1"><strong>Fakturanummer:</strong> <span id="detail-invoice-number">62</span></p>
+                                <p class="mb-1"><strong>Fakturadatum:</strong> <span id="detail-invoice-date">2025-12-01</span></p>
+                                <p class="mb-1"><strong>Förfallodatum:</strong> <span id="detail-invoice-due-date">2025-12-06</span></p>
+                                <p class="mb-1"><strong>Total summa:</strong> <span id="detail-invoice-sum">25 000,00</span> <span id="detail-invoice-currency">SEK</span></p>
+                                <p class="mb-1"><strong>Netto:</strong> <span id="detail-invoice-net">25 000,00</span> <span id="detail-invoice-currency-net">SEK</span></p>
+                                <p class="mb-1"><strong>Moms:</strong> <span id="detail-invoice-tax">0,00</span> <span id="detail-invoice-currency-tax">SEK</span></p>
+                                <p class="mb-1"><strong>Status:</strong> <span id="detail-invoice-status">Utkast</span></p>
+                                <p class="mb-1"><strong>Vår referens:</strong> <span id="detail-invoice-our-ref">Rahkman</span></p>
+                                <p class="mb-1"><strong>Er referens:</strong> <span id="detail-invoice-your-ref">N/A</span></p>
+                                <p class="mb-1"><strong>Betald:</strong> <span id="detail-invoice-paid-at">Ej betald</span></p>
+                            </div>
+
+                            <div id="modal-bank-event-info" class="mb-3" style="display: none;">
+                                <h5><i class="bi bi-bank me-2"></i>Bankhändelse</h5>
+                                <p class="mb-1"><strong>Datum:</strong> <span id="bank-event-date"></span></p>
+                                <p class="mb-1"><strong>Referens:</strong> <span id="bank-event-ref"></span></p>
+                                <p class="mb-1"><strong>Belopp:</strong> <span id="bank-event-amount"></span></p>
+                            </div>
+
+                            <div id="modal-attachments-section">
+                                <h5><i class="bi bi-paperclip me-2"></i>Bilagor</h5>
+                                <ul id="attachments-list" class="list-group">
+                                    <li class="list-group-item">Fakturan är underlag.</li>
+                                    <!-- Ytterligare bilagor kan läggas till här via JS -->
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger me-auto" id="delete-entry-btn-modal">Radera post</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
+                <button type="submit" form="invoiceEntryForm" class="btn btn-primary">Spara</button>
+            </div>
+        </div>
+    </div>
+</div>

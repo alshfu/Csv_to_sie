@@ -67,20 +67,23 @@
         </table>
     </div>
 
-    {% include '_verifikation_modal.html' %}
+    {% include '_generic_entry_modal.html' %}
 {% endblock %}
 
 {% block scripts %}
 <script>
-// All JavaScript for the unified modal is now included here.
-// This avoids having multiple, separate JS files and keeps logic with its template.
 document.addEventListener('DOMContentLoaded', function() {
     const companyId = {{ company.id }};
     const kontoplan = {{ kontoplan|tojson }};
-    const verifikationModal = new bootstrap.Modal(document.getElementById('verifikationModal'));
-    const modalForm = document.getElementById('verifikationForm');
+    const genericEntryModal = new bootstrap.Modal(document.getElementById('genericEntryModal'));
+    const modalForm = document.getElementById('genericEntryForm');
     const entriesContainer = document.getElementById('entries-container');
     const tableBody = document.getElementById('bilagor-table-body');
+    const modalEntryId = document.getElementById('modal-entry-id');
+    const modalEntryType = document.getElementById('modal-entry-type');
+    const genericEntryModalLabel = document.getElementById('genericEntryModalLabel');
+    const deleteEntryBtnModal = document.getElementById('delete-entry-btn-modal');
+
 
     // --- Unified Modal Logic ---
     function createEntryRow(entry = {}) {
@@ -111,13 +114,14 @@ document.addEventListener('DOMContentLoaded', function() {
         balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
     }
 
-    async function openModalForTransaction(transId) {
-        if (!transId) return;
-        const response = await fetch(`/api/verifikation/${transId}`);
+    async function openModalForExistingEntry(entryId, type) {
+        if (!entryId) return;
+        const response = await fetch(`/api/verifikation/${entryId}`); // Assuming verifikation API can fetch any entry
         const data = await response.json();
         
-        document.getElementById('modal-trans-id').value = data.id;
-        document.getElementById('verifikationModalLabel').textContent = `Redigera verifikation ${data.id}`;
+        modalEntryId.value = data.id;
+        modalEntryType.value = type;
+        genericEntryModalLabel.textContent = `Redigera ${type === 'verifikation' ? 'verifikation' : type} ${data.id}`;
         document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
         document.getElementById('modal-referens').value = data.referens;
         
@@ -145,19 +149,22 @@ document.addEventListener('DOMContentLoaded', function() {
             attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
         }
         
-        verifikationModal.show();
+        deleteEntryBtnModal.style.display = 'block';
+        genericEntryModal.show();
     }
 
-    function openModalForNew(bilagaData = {}) {
+    function openModalForNewEntry(bilagaData = {}) {
         modalForm.reset();
-        document.getElementById('modal-trans-id').value = '';
-        document.getElementById('verifikationModalLabel').textContent = 'Skapa ny verifikation';
+        modalEntryId.value = '';
+        modalEntryType.value = 'bilaga'; // Indicate it's a new entry from a bilaga
+        genericEntryModalLabel.textContent = 'Skapa ny verifikation från bilaga';
         entriesContainer.innerHTML = '';
         
         // Pre-fill from bilaga if available
         document.getElementById('modal-bokforingsdag').value = bilagaData.fakturadatum || new Date().toISOString().split('T')[0];
         document.getElementById('modal-referens').value = `Faktura ${bilagaData.fakturanr || ''}`.trim();
         
+        // Example pre-fill for a new entry from bilaga
         createEntryRow({ konto: '1930', kredit: bilagaData.brutto_amount || '' });
         createEntryRow({ konto: bilagaData.suggested_konto || '', debet: bilagaData.netto_amount || '' });
         if (bilagaData.moms_amount) {
@@ -174,29 +181,32 @@ document.addEventListener('DOMContentLoaded', function() {
             attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
         }
 
-        verifikationModal.show();
+        deleteEntryBtnModal.style.display = 'none';
+        genericEntryModal.show();
     }
 
     // --- Event Listeners ---
     tableBody.addEventListener('click', async (e) => {
         const row = e.target.closest('tr');
         const transId = row.dataset.transId;
+        const bilagaId = row.dataset.bilagaId;
 
         if (e.target.closest('.bokfor-btn') || e.target.closest('.open-ver-link')) {
             e.preventDefault();
             if (transId && transId !== 'None') {
-                openModalForTransaction(transId);
+                openModalForExistingEntry(transId, 'verifikation');
             } else {
                 // Fetch bilaga data to pre-fill the new verification
-                const bilagaId = row.dataset.bilagaId;
                 // This is a simplified approach. A real implementation might fetch bilaga details via API.
                 // For now, we'll just open a blank new modal.
-                openModalForNew();
+                // You might want to fetch bilaga details here to pass to openModalForNewEntry
+                const bilagaResponse = await fetch(`/api/bilaga/${bilagaId}/details`); // Assuming an API endpoint for bilaga details
+                const bilagaDetails = await bilagaResponse.json();
+                openModalForNewEntry(bilagaDetails);
             }
         }
 
         if (e.target.closest('.delete-bilaga-btn')) {
-            const bilagaId = row.dataset.bilagaId;
             if (!confirm('Är du säker på att du vill ta bort denna bilaga permanent?')) return;
             
             const response = await fetch(`/api/bilaga/${bilagaId}`, { method: 'DELETE' });
@@ -209,9 +219,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Add other modal-related event listeners (save, delete, add row, etc.)
-    // These are identical to the ones in verifikationer.html and transactions.html
-    // In a real-world scenario, this shared JS would be in its own file.
     document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
     entriesContainer.addEventListener('click', e => {
         if (e.target.closest('.remove-entry-row')) {
@@ -227,14 +234,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
     modalForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        const transId = document.getElementById('modal-trans-id').value;
-        const url = transId ? `/api/verifikation/${transId}` : `/api/company/${companyId}/verifikation`;
-        const method = transId ? 'PUT' : 'POST';
+        const entryId = modalEntryId.value;
+        const entryType = modalEntryType.value;
+        const bilagaId = document.querySelector('tr[data-bilaga-id]').dataset.bilagaId; // Get bilagaId from the table row
+
+        let url;
+        let method;
+
+        if (entryId) {
+            url = `/api/verifikation/${entryId}`;
+            method = 'PUT';
+        } else {
+            url = `/api/company/${companyId}/verifikation`;
+            method = 'POST';
+        }
 
         const formData = new FormData(modalForm);
         const data = {
             bokforingsdag: formData.get('bokforingsdag'),
             referens: formData.get('referens'),
+            bilaga_id: bilagaId, // Pass bilaga_id when creating/updating
             entries: []
         };
 
@@ -265,11 +284,31 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
 
-            verifikationModal.hide();
+            genericEntryModal.hide();
             alert('Verifikationen har sparats!');
             location.reload();
         } catch (error) {
             alert(`Kunde inte spara verifikationen: ${error.message}`);
+        }
+    });
+
+    deleteEntryBtnModal.addEventListener('click', async function() {
+        const entryId = modalEntryId.value;
+        if (!entryId || !confirm(`Är du säker på att du vill radera post ${entryId} permanent?`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/verifikation/${entryId}`, { method: 'DELETE' });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
+
+            genericEntryModal.hide();
+            alert('Posten har raderats.');
+            location.reload();
+
+        } catch (error) {
+            alert(`Kunde inte radera posten: ${error.message}`);
         }
     });
 
