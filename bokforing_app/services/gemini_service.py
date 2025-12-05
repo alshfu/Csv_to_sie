@@ -120,7 +120,6 @@ def _call_gemini_api(prompt: str, use_proxy: bool = True) -> Dict:
         current_app.logger.error(error_msg)
         return {"error": error_msg}
 
-
 def _build_prompt_for_invoice(invoice: Invoice, general_rules: str) -> str:
     """
     Bygger en anpassad prompt för fakturor, baserat på metod och typ.
@@ -164,7 +163,8 @@ Allmänna regler:
 Instruktioner för bokföringsmetod:
 {method_instructions}
 
-Instruktioner för omvänd skattskyldighet:
+Instruktioner för moms och omvänd skattskyldighet:
+- Fakturan anses momsbelagd: Inkludera alltid utgående moms (261x) baserat på momsbelopp, om inte omvänd skattskyldighet gäller.
 {reverse_charge_instructions}
 
 Fakturadata:
@@ -181,15 +181,6 @@ Exempel (1250 SEK, 1000 netto + 250 moms, fakturametod):
 {{"suggestion": {{"description": "Faktura {invoice.number} - {invoice.client.name}", "entries": [{{"account": "1510", "debit": 1250.00, "credit": 0}}, {{"account": "2611", "debit": 0, "credit": 250.00}}, {{"account": "3001", "debit": 0, "credit": 1000.00}}]}}}}
 """
     return prompt
-
-
-def get_suggestion_for_invoice(invoice: Invoice, general_rules: str) -> Dict:
-    """
-    Bygger en prompt för en kundfaktura och anropar Gemini API.
-    """
-    prompt = _build_prompt_for_invoice(invoice, general_rules)
-    return _call_gemini_api(prompt)
-
 
 def _build_prompt_for_transaction(transaction: BankTransaction, general_rules: str, specific_rule: str) -> str:
     """
@@ -218,24 +209,11 @@ Transaktionsdata:
 - Belopp: {transaction.belopp} SEK
 
 Instruktioner:
+- Transaktion anses momsbelagd: Inkludera alltid moms (ingående/utgående) baserat på belopp, om relevant.
 - Kreditera '1930' vid negativt belopp (utbetalning).
 - Debet '1930' vid positivt belopp (inbetalning).
 """
     return prompt
-
-
-def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_rules: str, specific_rule: str) -> Dict:
-    """
-    Bygger en prompt för en banktransaktion och ber om både ett förslag och en regel.
-    """
-    prompt = _build_prompt_for_transaction(transaction, general_rules, specific_rule)
-    gemini_response = _call_gemini_api(prompt)
-    if 'suggestion' in gemini_response and 'rule' not in gemini_response:
-        current_app.logger.warning("Gemini returnerade en suggestion men ingen regel för en transaktion.")
-        gemini_response['rule'] = {'description': 'Generell regel ej skapad', 'entries': []}
-    
-    return gemini_response
-
 
 def _build_prompt_for_bilaga(bilaga: Bilaga, general_rules: str) -> str:
     """
@@ -267,7 +245,8 @@ Allmänna regler:
 Instruktioner för bokföringsmetod:
 {method_instructions}
 
-Instruktioner för omvänd skattskyldighet:
+Instruktioner för moms och omvänd skattskyldighet:
+- Underlaget anses momsbelagt: Inkludera alltid ingående moms (264x) baserat på momsbelopp, om inte omvänd skattskyldighet gäller.
 {reverse_charge_instructions}
 
 Underlagsdata:
@@ -284,6 +263,24 @@ Exempel (1250 SEK, 1000 netto + 250 moms, fakturametod):
 """
     return prompt
 
+def get_suggestion_for_invoice(invoice: Invoice, general_rules: str) -> Dict:
+    """
+    Bygger en prompt för en kundfaktura och anropar Gemini API.
+    """
+    prompt = _build_prompt_for_invoice(invoice, general_rules)
+    return _call_gemini_api(prompt)
+
+def get_bokforing_suggestion_from_gemini(transaction: BankTransaction, general_rules: str, specific_rule: str) -> Dict:
+    """
+    Bygger en prompt för en banktransaktion och ber om både ett förslag och en regel.
+    """
+    prompt = _build_prompt_for_transaction(transaction, general_rules, specific_rule)
+    gemini_response = _call_gemini_api(prompt)
+    if 'suggestion' in gemini_response and 'rule' not in gemini_response:
+        current_app.logger.warning("Gemini returnerade en suggestion men ingen regel för en transaktion.")
+        gemini_response['rule'] = {'description': 'Generell regel ej skapad', 'entries': []}
+
+    return gemini_response
 
 def get_suggestion_for_bilaga(bilaga: Bilaga, general_rules: str) -> Dict:
     """
