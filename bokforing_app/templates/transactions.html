@@ -1,114 +1,64 @@
 {% extends 'base.html' %}
 {% block title %}Bokföring - {{ company.name }}{% endblock %}
+{% block page_title %}Obearbetade transaktioner{% endblock %}
 
 {% block content %}
-    <div class="container-fluid py-4">
-        <!-- Header Section -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h2 class="h2 mb-0 fw-bold text-primary">
-                        <i class="bi bi-journal-text me-2"></i>
-                        Bokföring: {{ company.name }}
-                    </h2>
-                    <a href="{{ url_for('main.ai_settings_page') }}" class="btn btn-outline-info btn-lg">
-                        <i class="bi bi-robot me-1"></i>
-                        AI-inställningar
-                    </a>
+    <div class="row mb-4">
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0"><i class="bi bi-cloud-upload me-2"></i>Ladda upp CSV med transaktioner</h5>
+                </div>
+                <div class="card-body">
+                    <form action="{{ url_for('api.upload_csv', company_id=company.id) }}" method="POST" enctype="multipart/form-data">
+                        <div class="input-group">
+                            <input type="file" class="form-control" name="csv_file" accept=".csv" required>
+                            <button class="btn btn-primary" type="submit"><i class="bi bi-upload me-1"></i>Ladda upp</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
+    </div>
 
-        <!-- Upload Section -->
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header bg-primary text-white">
-                        <h5 class="card-title mb-0">
-                            <i class="bi bi-cloud-upload me-2"></i>
-                            Ladda upp ny CSV (Banktransaktioner)
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <form action="{{ url_for('api.upload_csv', company_id=company.id) }}" method="POST" enctype="multipart/form-data">
-                            <div class="input-group input-group-lg">
-                                <input type="file" class="form-control" name="csv_file" accept=".csv" required>
-                                <button class="btn btn-primary" type="submit">
-                                    <i class="bi bi-upload me-1"></i>
-                                    Ladda upp CSV
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-list-ul me-2"></i>Väntar på bokföring</h4>
+            <button id="batch-book-btn" class="btn btn-success" disabled>
+                <i class="bi bi-check-circle me-1"></i>Bokför markerade (<span id="selected-count">0</span>)
+            </button>
         </div>
-
-        <!-- Transactions Section -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card shadow-sm border-0">
-                    <div class="card-header d-flex justify-content-between align-items-center bg-light">
-                        <h3 class="h4 mb-0 fw-semibold text-muted">
-                            <i class="bi bi-list-ul me-2"></i>
-                            Obearbetade transaktioner
-                        </h3>
-                        <div class="d-flex gap-2">
-                            <button id="batch-book-btn" class="btn btn-success btn-lg px-4" disabled>
-                                <i class="bi bi-check-circle me-1"></i>
-                                Bokför markerade med AI (<span id="selected-count">0</span>)
-                            </button>
-                        </div>
-                    </div>
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover table-striped mb-0 align-middle sortable-table">
-                                <thead class="table-dark">
-                                    <tr>
-                                        <th scope="col" class="text-center sortable" data-sort="checkbox" style="width: 50px;">
-                                            <input type="checkbox" id="select-all-checkbox" class="form-check-input">
-                                        </th>
-                                        <th scope="col" class="sortable" data-sort="date">
-                                            <span>Datum</span>
-                                            <i class="bi bi-arrow-up-down ms-1"></i>
-                                        </th>
-                                        <th scope="col" class="sortable" data-sort="ref">
-                                            <span>Referens</span>
-                                            <i class="bi bi-arrow-up-down ms-1"></i>
-                                        </th>
-                                        <th scope="col" class="text-end sortable" data-sort="amount">
-                                            <span>Belopp</span>
-                                            <i class="bi bi-arrow-up-down ms-1"></i>
-                                        </th>
-                                        <th scope="col" style="width: 120px;">Status</th>
-                                        <th scope="col" class="text-end" style="width: 120px;">Åtgärd</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="transactions-table-body">
-                                    {% for trans in transactions %}
-                                        <tr id="trans-row-{{ trans.id }}" class="transaction-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;" data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}" data-ref="{{ trans.referens }}" data-amount="{{ trans.belopp }}">
-                                            <td class="text-center">
-                                                <input type="checkbox" class="form-check-input transaction-checkbox" data-trans-id="{{ trans.id }}">
-                                            </td>
-                                            <td class="fw-medium">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
-                                            <td>{{ trans.referens }}</td>
-                                            <td class="text-end fw-bold {% if trans.belopp < 0 %}text-danger{% else %}text-success{% endif %}">{{ "%.2f"|format(trans.belopp) }} kr</td>
-                                            <td>
-                                                <span class="badge bg-warning text-dark px-2 py-1 fs-6">{{ trans.status }}</span>
-                                            </td>
-                                            <td class="text-end">
-                                                <button class="btn btn-outline-primary btn-sm ask-ai-btn px-3" data-trans-id="{{ trans.id }}" title="Få bokföringsförslag">
-                                                    <i class="bi bi-robot me-1"></i>
-                                                    AI
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-striped mb-0 datatable">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="text-center" style="width: 50px;">
+                                <input type="checkbox" id="select-all-checkbox" class="form-check-input"></th>
+                            <th scope="col">Datum</th>
+                            <th scope="col">Referens</th>
+                            <th scope="col" class="text-end">Belopp</th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="text-end">Åtgärd</th>
+                        </tr>
+                    </thead>
+                    <tbody id="transactions-table-body">
+                        {% for trans in transactions %}
+                            <tr id="trans-row-{{ trans.id }}" class="transaction-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;">
+                                <td class="text-center"><input type="checkbox" class="form-check-input transaction-checkbox" data-trans-id="{{ trans.id }}"></td>
+                                <td class="fw-medium">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
+                                <td>{{ trans.referens }}</td>
+                                <td class="text-end fw-bold {% if trans.belopp < 0 %}text-danger{% else %}text-success{% endif %}">{{ "%.2f"|format(trans.belopp) }} kr</td>
+                                <td><span class="badge bg-warning text-dark">{{ trans.status }}</span></td>
+                                <td class="text-end">
+                                    <button class="btn btn-outline-primary btn-sm ask-ai-btn" data-trans-id="{{ trans.id }}" title="Få bokföringsförslag">
+                                        <i class="bi bi-robot me-1"></i>AI
+                                    </button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -117,7 +67,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script defer>
 document.addEventListener('DOMContentLoaded', async function() {
     const companyId = {{ company.id }};
     const kontoplan = {{ kontoplan|tojson }};
@@ -126,16 +76,15 @@ document.addEventListener('DOMContentLoaded', async function() {
     const entriesContainer = document.getElementById('entries-container');
     const tableBody = document.getElementById('transactions-table-body');
     const modalLabel = document.getElementById('genericEntryModalLabel');
-
-    // --- Underlag Selectors ---
     const invoiceSelectEl = document.getElementById('invoice-select');
     const attachmentSelectEl = document.getElementById('attachment-select');
     const underlagList = document.getElementById('underlag-list');
+    const saveBtn = document.getElementById('save-entry-btn');
+    const saveBtnSpinner = saveBtn.querySelector('.spinner-border');
+    
     let invoiceTomSelect, attachmentTomSelect;
-    let availableInvoices = [];
-    let availableAttachments = [];
+    let availableInvoices = [], availableAttachments = [];
 
-    // Fetch available underlag once
     try {
         const [invoicesRes, attachmentsRes] = await Promise.all([
             fetch(`/api/company/${companyId}/invoices?booked=false`),
@@ -145,7 +94,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         availableAttachments = await attachmentsRes.json();
     } catch (error) {
         console.error("Kunde inte ladda underlag:", error);
-        alert("Kunde inte ladda tillgängliga fakturor och bilagor. Sidan kanske inte fungerar korrekt.");
+        showToast("Kunde inte ladda tillgängliga fakturor och bilagor.", "danger");
     }
 
     function initializeUnderlagSelectors() {
@@ -191,57 +140,26 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     initializeUnderlagSelectors();
 
-    // --- Table Sorting Logic (omitted for brevity) ---
-
-    // --- Unified Modal Logic ---
-    function createEntryRow(entry = {}) {
-        const row = document.createElement('div');
-        row.className = 'row g-2 mb-2 entry-row';
-        row.innerHTML = `
-            <div class="col-md-5"><select class="form-select konto-select" name="konto">${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}</select></div>
-            <div class="col-md-3"><input type="number" class="form-control debet-input" name="debet" placeholder="Debet" value="${entry.debet || ''}" step="0.01"></div>
-            <div class="col-md-3"><input type="number" class="form-control kredit-input" name="kredit" placeholder="Kredit" value="${entry.kredit || ''}" step="0.01"></div>
-            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger remove-entry-row"><i class="bi bi-trash"></i></button></div>
-        `;
-        entriesContainer.appendChild(row);
-        new TomSelect(row.querySelector('.konto-select'), { create: false, sortField: { field: "text", direction: "asc" } });
-    }
-
-    function updateTotals() {
-        let totalDebet = 0, totalKredit = 0;
-        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
-            totalDebet += parseFloat(row.querySelector('.debet-input').value) || 0;
-            totalKredit += parseFloat(row.querySelector('.kredit-input').value) || 0;
-        });
-        document.getElementById('total-debet').textContent = totalDebet.toFixed(2);
-        document.getElementById('total-kredit').textContent = totalKredit.toFixed(2);
-        const balance = totalDebet - totalKredit;
-        const balanceEl = document.getElementById('balance');
-        balanceEl.textContent = balance.toFixed(2);
-        balanceEl.classList.toggle('text-danger', balance.toFixed(2) != '0.00');
-        balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
-    }
-
     async function populateGenericEntryModal(data, type) {
+        modalForm.reset();
         document.getElementById('modal-entry-id').value = data.id;
         document.getElementById('modal-entry-type').value = type;
         modalLabel.textContent = `Bokför ${type === 'transaction' ? 'transaktion' : type}`;
         document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
         document.getElementById('modal-referens').value = data.referens;
 
-        // Show/hide relevant sections
         document.getElementById('modal-invoice-info').style.display = 'none';
         document.getElementById('modal-bank-event-info').style.display = 'block';
         document.getElementById('modal-underlag-section').style.display = 'block';
 
         entriesContainer.innerHTML = '';
-        data.entries.forEach(entry => createEntryRow(entry));
+        data.entries.forEach(entry => createEntryRow(entriesContainer, kontoplan, entry));
         if (data.entries.length === 0) {
             const bankAmount = data.bank_event ? data.bank_event.amount : 0;
-            createEntryRow({ konto: '1930', debet: bankAmount > 0 ? bankAmount : '', kredit: bankAmount < 0 ? -bankAmount : '' });
-            createEntryRow();
+            createEntryRow(entriesContainer, kontoplan, { konto: '1930', debet: bankAmount > 0 ? bankAmount : '', kredit: bankAmount < 0 ? -bankAmount : '' });
+            createEntryRow(entriesContainer, kontoplan);
         }
-        updateTotals();
+        updateTotals(entriesContainer);
 
         const bankEventInfo = document.getElementById('modal-bank-event-info');
         if (data.bank_event) {
@@ -253,23 +171,21 @@ document.addEventListener('DOMContentLoaded', async function() {
             bankEventInfo.style.display = 'none';
         }
 
-        // Populate underlag
         invoiceTomSelect.setValue(data.invoice_ids || []);
         attachmentTomSelect.setValue(data.attachment_ids || []);
         updateUnderlagListAndHiddenInput();
     }
 
-    // --- Event Listeners ---
-    document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
+    document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow(entriesContainer, kontoplan));
     entriesContainer.addEventListener('click', e => {
         if (e.target.closest('.remove-entry-row')) {
             e.target.closest('.entry-row').remove();
-            updateTotals();
+            updateTotals(entriesContainer);
         }
     });
     entriesContainer.addEventListener('input', e => {
         if (e.target.classList.contains('debet-input') || e.target.classList.contains('kredit-input')) {
-            updateTotals();
+            updateTotals(entriesContainer);
         }
     });
 
@@ -286,6 +202,10 @@ document.addEventListener('DOMContentLoaded', async function() {
 
     modalForm.addEventListener('submit', async function(e) {
         e.preventDefault();
+        
+        saveBtn.disabled = true;
+        saveBtnSpinner.classList.remove('d-none');
+
         const transId = document.getElementById('modal-entry-id').value;
         const url = transId ? `/api/verifikation/${transId}` : `/api/company/${companyId}/verifikation`;
         const method = transId ? 'PUT' : 'POST';
@@ -308,11 +228,15 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
 
         if (Math.abs(parseFloat(document.getElementById('balance').textContent)) > 0.01) {
-            alert('Fel: Debet och Kredit måste vara i balans.');
+            showToast('Fel: Debet och Kredit måste vara i balans.', 'danger');
+            saveBtn.disabled = false;
+            saveBtnSpinner.classList.add('d-none');
             return;
         }
         if (data.entries.length < 2) {
-            alert('Fel: Du måste ha minst två bokföringsposter.');
+            showToast('Fel: Du måste ha minst två bokföringsposter.', 'danger');
+            saveBtn.disabled = false;
+            saveBtnSpinner.classList.add('d-none');
             return;
         }
 
@@ -326,10 +250,13 @@ document.addEventListener('DOMContentLoaded', async function() {
             if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
 
             genericEntryModal.hide();
-            alert('Verifikationen har sparats!');
-            location.reload();
+            showToast('Verifikationen har sparats!', 'success');
+            setTimeout(() => location.reload(), 1500);
         } catch (error) {
-            alert(`Kunde inte spara verifikationen: ${error.message}`);
+            showToast(`Kunde inte spara verifikationen: ${error.message}`, 'danger');
+        } finally {
+            saveBtn.disabled = false;
+            saveBtnSpinner.classList.add('d-none');
         }
     });
 
@@ -354,15 +281,13 @@ document.addEventListener('DOMContentLoaded', async function() {
                 genericEntryModal.show();
 
             } catch (error) {
-                alert(`AI-fel: ${error.message}`);
+                showToast(`AI-fel: ${error.message}`, 'danger');
             } finally {
                 aiButton.disabled = false;
                 aiButton.innerHTML = '<i class="bi bi-robot me-1"></i>AI';
             }
         }
     });
-    
-    // --- Batch Booking Logic (omitted for brevity) ---
 });
 </script>
 {% endblock %}

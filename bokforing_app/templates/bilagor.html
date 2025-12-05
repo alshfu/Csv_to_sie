@@ -1,344 +1,192 @@
 {% extends 'base.html' %}
 {% block title %}Bilagor - {{ company.name }}{% endblock %}
+{% block page_title %}Bilagor{% endblock %}
 
 {% block content %}
-    <h2>Bilagor: {{ company.name }}</h2>
-
-    <div class="card bg-light my-4">
+    <div class="card my-4">
         <div class="card-body">
             <h5 class="card-title">Ladda upp nya bilagor (PDF, JPG, PNG)</h5>
             <form id="multi-upload-form" action="{{ url_for('api.multi_upload_bilagor', company_id=company.id) }}" method="POST" enctype="multipart/form-data">
                 <div class="input-group">
                     <input type="file" class="form-control" name="files" accept=".pdf,.jpg,.jpeg,.png" multiple required>
-                    <button class="btn btn-primary" type="submit">Ladda upp</button>
-                </div>
-                <div class="progress mt-2" style="display: none;">
-                    <div class="progress-bar" role="progressbar" style="width: 0%;">0%</div>
+                    <button class="btn btn-primary" type="submit" id="upload-btn">
+                        <span class="spinner-border spinner-border-sm d-none" role="status" aria-hidden="true"></span>
+                        Ladda upp
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 
-    <div class="table-responsive mt-4">
-        <table class="table table-hover">
-            <thead>
-                <tr>
-                    <th>Förhandsgranskning</th>
-                    <th>Filnamn</th>
-                    <th>Status</th>
-                    <th>Kopplad till Ver.</th>
-                    <th class="text-end">Åtgärd</th>
-                </tr>
-            </thead>
-            <tbody id="bilagor-table-body">
-                {% for bilaga in all_bilagor %}
-                    <tr id="bilaga-row-{{ bilaga.id }}" data-bilaga-id="{{ bilaga.id }}" data-trans-id="{{ bilaga.bank_transaction_id }}">
-                        <td>
-                            <a href="{{ url_for('static', filename='uploads/' + bilaga.filepath) }}" target="_blank">
-                                <i class="bi bi-file-earmark-text" style="font-size: 1.5rem;"></i>
-                            </a>
-                        </td>
-                        <td>{{ bilaga.filename }}</td>
-                        <td>
-                            {% if bilaga.status == 'assigned' %}
-                                <span class="badge bg-success">Kopplad</span>
-                            {% else %}
-                                <span class="badge bg-secondary">Fri</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if bilaga.bank_transaction_id %}
-                                <a href="#" class="open-ver-link">{{ bilaga.bank_transaction_id }}</a>
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                        <td class="text-end">
-                            <button class="btn btn-sm btn-outline-primary bokfor-btn">
-                                {% if bilaga.bank_transaction_id %}Redigera{% else %}Bokför{% endif %}
-                            </button>
-                            <button class="btn btn-sm btn-outline-danger delete-bilaga-btn" title="Ta bort bilaga">
-                                <i class="bi bi-trash"></i>
-                            </button>
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="card">
+        <div class="card-header">
+            <h4 class="mb-0">Alla bilagor</h4>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover datatable">
+                    <thead>
+                        <tr>
+                            <th>Filnamn</th>
+                            <th>Datum</th>
+                            <th>Belopp</th>
+                            <th>Status</th>
+                            <th class="text-end">Åtgärd</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bilagor-table-body">
+                        {% for bilaga in all_bilagor %}
+                            <tr id="bilaga-row-{{ bilaga.id }}" data-bilaga-id="{{ bilaga.id }}">
+                                <td>
+                                    <a href="{{ url_for('static', filename='uploads/' + bilaga.filepath) }}" target="_blank">
+                                        <i class="bi bi-file-earmark-text me-2"></i>{{ bilaga.filename }}
+                                    </a>
+                                </td>
+                                <td>{{ bilaga.fakturadatum.strftime('%Y-%m-%d') if bilaga.fakturadatum else '' }}</td>
+                                <td>{{ bilaga.brutto_amount or '' }}</td>
+                                <td>
+                                    {% if bilaga.status == 'assigned' %}
+                                        <span class="badge bg-success">Kopplad</span>
+                                    {% else %}
+                                        <span class="badge bg-secondary">Fri</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-outline-primary bokfor-btn"
+                                            data-bilaga-id="{{ bilaga.id }}"
+                                            data-ver-id="{{ bilaga.bank_transaction_id }}">
+                                        {% if bilaga.bank_transaction_id %}Redigera{% else %}Bokför{% endif %}
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger delete-bilaga-btn" data-bilaga-id="{{ bilaga.id }}" title="Ta bort bilaga">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center py-4 text-muted">Inga bilagor har laddats upp.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     {% include '_generic_entry_modal.html' %}
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script src="{{ url_for('static', filename='js/genericEntryModal.js') }}" defer></script>
+<script defer>
 document.addEventListener('DOMContentLoaded', function() {
     const companyId = {{ company.id }};
     const kontoplan = {{ kontoplan|tojson }};
-    const genericEntryModal = new bootstrap.Modal(document.getElementById('genericEntryModal'));
-    const modalForm = document.getElementById('genericEntryForm');
-    const entriesContainer = document.getElementById('entries-container');
-    const tableBody = document.getElementById('bilagor-table-body');
-    const modalEntryId = document.getElementById('modal-entry-id');
-    const modalEntryType = document.getElementById('modal-entry-type');
-    const genericEntryModalLabel = document.getElementById('genericEntryModalLabel');
-    const deleteEntryBtnModal = document.getElementById('delete-entry-btn-modal');
-
-
-    // --- Unified Modal Logic ---
-    function createEntryRow(entry = {}) {
-        const row = document.createElement('div');
-        row.className = 'row g-2 mb-2 entry-row';
-        row.innerHTML = `
-            <div class="col-md-5"><select class="form-select konto-select" name="konto">${Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}" ${entry.konto == nr ? 'selected' : ''}>${nr} - ${desc}</option>`).join('')}</select></div>
-            <div class="col-md-3"><input type="number" class="form-control debet-input" name="debet" placeholder="Debet" value="${entry.debet || ''}" step="0.01"></div>
-            <div class="col-md-3"><input type="number" class="form-control kredit-input" name="kredit" placeholder="Kredit" value="${entry.kredit || ''}" step="0.01"></div>
-            <div class="col-md-1"><button type="button" class="btn btn-sm btn-outline-danger remove-entry-row"><i class="bi bi-trash"></i></button></div>
-        `;
-        entriesContainer.appendChild(row);
-        new TomSelect(row.querySelector('.konto-select'), { create: false, sortField: { field: "text", direction: "asc" } });
-    }
-
-    function updateTotals() {
-        let totalDebet = 0, totalKredit = 0;
-        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
-            totalDebet += parseFloat(row.querySelector('.debet-input').value) || 0;
-            totalKredit += parseFloat(row.querySelector('.kredit-input').value) || 0;
-        });
-        document.getElementById('total-debet').textContent = totalDebet.toFixed(2);
-        document.getElementById('total-kredit').textContent = totalKredit.toFixed(2);
-        const balance = totalDebet - totalKredit;
-        const balanceEl = document.getElementById('balance');
-        balanceEl.textContent = balance.toFixed(2);
-        balanceEl.classList.toggle('text-danger', balance.toFixed(2) != '0.00');
-        balanceEl.classList.toggle('text-success', balance.toFixed(2) == '0.00');
-    }
-
-    async function openModalForExistingEntry(entryId, type) {
-        if (!entryId) return;
-        const response = await fetch(`/api/verifikation/${entryId}`); // Assuming verifikation API can fetch any entry
-        const data = await response.json();
-        
-        modalEntryId.value = data.id;
-        modalEntryType.value = type;
-        genericEntryModalLabel.textContent = `Redigera ${type === 'verifikation' ? 'verifikation' : type} ${data.id}`;
-        document.getElementById('modal-bokforingsdag').value = data.bokforingsdag;
-        document.getElementById('modal-referens').value = data.referens;
-        
-        entriesContainer.innerHTML = '';
-        data.entries.forEach(entry => createEntryRow(entry));
-        updateTotals();
-
-        const bankEventInfo = document.getElementById('modal-bank-event-info');
-        if (data.bank_event) {
-            bankEventInfo.style.display = 'block';
-            document.getElementById('bank-event-date').textContent = data.bank_event.date;
-            document.getElementById('bank-event-ref').textContent = data.bank_event.ref;
-            document.getElementById('bank-event-amount').textContent = data.bank_event.amount;
-        } else {
-            bankEventInfo.style.display = 'none';
+    
+    const modalManager = new GenericEntryModal({
+        companyId: companyId,
+        kontoplan: kontoplan,
+        fetchUrls: {
+            get: '/api/verifikation/{id}',
+            post: `/api/company/${companyId}/verifikation`,
+            put: '/api/verifikation/{id}',
+            delete: '/api/verifikation/{id}'
         }
+    });
 
-        const attachmentsList = document.getElementById('attachments-list');
-        attachmentsList.innerHTML = '';
-        if (data.attachments && data.attachments.length > 0) {
-            data.attachments.forEach(att => {
-                attachmentsList.innerHTML += `<li class="list-group-item"><a href="${att.url}" target="_blank">${att.filename}</a></li>`;
-            });
-        } else {
-            attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
-        }
-        
-        deleteEntryBtnModal.style.display = 'block';
-        genericEntryModal.show();
-    }
+    document.getElementById('bilagor-table-body').addEventListener('click', async (e) => {
+        const bokforBtn = e.target.closest('.bokfor-btn');
+        const deleteBtn = e.target.closest('.delete-bilaga-btn');
 
-    function openModalForNewEntry(bilagaData = {}) {
-        modalForm.reset();
-        modalEntryId.value = '';
-        modalEntryType.value = 'bilaga'; // Indicate it's a new entry from a bilaga
-        genericEntryModalLabel.textContent = 'Skapa ny verifikation från bilaga';
-        entriesContainer.innerHTML = '';
-        
-        // Pre-fill from bilaga if available
-        document.getElementById('modal-bokforingsdag').value = bilagaData.fakturadatum || new Date().toISOString().split('T')[0];
-        document.getElementById('modal-referens').value = `Faktura ${bilagaData.fakturanr || ''}`.trim();
-        
-        // Example pre-fill for a new entry from bilaga
-        createEntryRow({ konto: '1930', kredit: bilagaData.brutto_amount || '' });
-        createEntryRow({ konto: bilagaData.suggested_konto || '', debet: bilagaData.netto_amount || '' });
-        if (bilagaData.moms_amount) {
-            createEntryRow({ konto: '2641', debet: bilagaData.moms_amount });
-        }
-
-        updateTotals();
-        document.getElementById('modal-bank-event-info').style.display = 'none';
-        
-        const attachmentsList = document.getElementById('attachments-list');
-        if (bilagaData.id) {
-            attachmentsList.innerHTML = `<li class="list-group-item"><a href="${bilagaData.url}" target="_blank">${bilagaData.filename}</a> (Denna bilaga kommer att kopplas)</li>`;
-        } else {
-            attachmentsList.innerHTML = '<li class="list-group-item">Inga bilagor kopplade.</li>';
-        }
-
-        deleteEntryBtnModal.style.display = 'none';
-        genericEntryModal.show();
-    }
-
-    // --- Event Listeners ---
-    tableBody.addEventListener('click', async (e) => {
-        const row = e.target.closest('tr');
-        const transId = row.dataset.transId;
-        const bilagaId = row.dataset.bilagaId;
-
-        if (e.target.closest('.bokfor-btn') || e.target.closest('.open-ver-link')) {
+        if (bokforBtn) {
             e.preventDefault();
-            if (transId && transId !== 'None') {
-                openModalForExistingEntry(transId, 'verifikation');
+            const bilagaId = bokforBtn.dataset.bilagaId;
+            const verId = bokforBtn.dataset.verId;
+
+            if (verId && verId !== 'None') {
+                modalManager.openModal(verId, 'verifikation');
             } else {
-                // Fetch bilaga data to pre-fill the new verification
-                // This is a simplified approach. A real implementation might fetch bilaga details via API.
-                // For now, we'll just open a blank new modal.
-                // You might want to fetch bilaga details here to pass to openModalForNewEntry
-                const bilagaResponse = await fetch(`/api/bilaga/${bilagaId}/details`); // Assuming an API endpoint for bilaga details
-                const bilagaDetails = await bilagaResponse.json();
-                openModalForNewEntry(bilagaDetails);
+                try {
+                    const response = await fetch(`/api/bilaga/${bilagaId}/details`);
+                    if (!response.ok) throw new Error('Kunde inte hämta bilagans detaljer.');
+                    
+                    const bilagaDetails = await response.json();
+                    
+                    const prefillData = {
+                        referens: `Faktura ${bilagaDetails.fakturanr || bilagaDetails.filename}`,
+                        omvand_skattskyldighet: bilagaDetails.omvand_skattskyldighet,
+                        attachment_ids: [bilagaId] 
+                    };
+                    
+                    const metadataContainer = document.createElement('div');
+                    metadataContainer.style.display = 'none';
+                    metadataContainer.innerHTML = `
+                        <input id="metadata-total-brutto" value="${bilagaDetails.brutto_amount || 0}">
+                        <input id="metadata-total-moms" value="${bilagaDetails.moms_amount || 0}">
+                        <input id="metadata-suggested-konto" value="${bilagaDetails.suggested_konto || '5410'}">
+                    `;
+                    document.body.appendChild(metadataContainer);
+
+                    modalManager.openModal(null, 'verifikation från bilaga', prefillData);
+
+                    setTimeout(() => metadataContainer.remove(), 500);
+
+                } catch (error) {
+                    showBootstrapAlert(error.message, 'danger');
+                }
             }
         }
 
-        if (e.target.closest('.delete-bilaga-btn')) {
-            if (!confirm('Är du säker på att du vill ta bort denna bilaga permanent?')) return;
-            
-            const response = await fetch(`/api/bilaga/${bilagaId}`, { method: 'DELETE' });
-            if (response.ok) {
-                row.remove();
-                alert('Bilagan har tagits bort.');
-            } else {
-                alert('Kunde inte ta bort bilagan.');
-            }
-        }
-    });
-
-    document.getElementById('add-entry-row').addEventListener('click', () => createEntryRow());
-    entriesContainer.addEventListener('click', e => {
-        if (e.target.closest('.remove-entry-row')) {
-            e.target.closest('.entry-row').remove();
-            updateTotals();
-        }
-    });
-    entriesContainer.addEventListener('input', e => {
-        if (e.target.classList.contains('debet-input') || e.target.classList.contains('kredit-input')) {
-            updateTotals();
-        }
-    });
-
-    modalForm.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        const entryId = modalEntryId.value;
-        const entryType = modalEntryType.value;
-        const bilagaId = document.querySelector('tr[data-bilaga-id]').dataset.bilagaId; // Get bilagaId from the table row
-
-        let url;
-        let method;
-
-        if (entryId) {
-            url = `/api/verifikation/${entryId}`;
-            method = 'PUT';
-        } else {
-            url = `/api/company/${companyId}/verifikation`;
-            method = 'POST';
-        }
-
-        const formData = new FormData(modalForm);
-        const data = {
-            bokforingsdag: formData.get('bokforingsdag'),
-            referens: formData.get('referens'),
-            bilaga_id: bilagaId, // Pass bilaga_id when creating/updating
-            entries: []
-        };
-
-        entriesContainer.querySelectorAll('.entry-row').forEach(row => {
-            const konto = row.querySelector('.konto-select').value;
-            const debet = parseFloat(row.querySelector('.debet-input').value) || 0;
-            const kredit = parseFloat(row.querySelector('.kredit-input').value) || 0;
-            if (konto && (debet > 0 || kredit > 0)) {
-                data.entries.push({ konto, debet, kredit });
-            }
-        });
-
-        if (parseFloat(document.getElementById('balance').textContent).toFixed(2) != '0.00') {
-            alert('Fel: Debet och Kredit måste vara i balans.');
-            return;
-        }
-        if (data.entries.length === 0) {
-            alert('Fel: Du måste ha minst en bokföringspost.');
-            return;
-        }
-
-        try {
-            const response = await fetch(url, {
-                method: method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+        if (deleteBtn) {
+            const bilagaId = deleteBtn.dataset.bilagaId;
+            showConfirm('Är du säker på att du vill ta bort denna bilaga permanent?', async (confirmed) => {
+                if (confirmed) {
+                    try {
+                        const response = await fetch(`/api/bilaga/${bilagaId}`, { method: 'DELETE' });
+                        if (response.ok) {
+                            document.getElementById(`bilaga-row-${bilagaId}`).remove();
+                            showBootstrapAlert('Bilagan har tagits bort.', 'success');
+                        } else {
+                            const result = await response.json();
+                            throw new Error(result.error || 'Kunde inte ta bort bilagan.');
+                        }
+                    } catch (error) {
+                        showBootstrapAlert(error.message, 'danger');
+                    }
+                }
             });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
-
-            genericEntryModal.hide();
-            alert('Verifikationen har sparats!');
-            location.reload();
-        } catch (error) {
-            alert(`Kunde inte spara verifikationen: ${error.message}`);
         }
     });
 
-    deleteEntryBtnModal.addEventListener('click', async function() {
-        const entryId = modalEntryId.value;
-        if (!entryId || !confirm(`Är du säker på att du vill radera post ${entryId} permanent?`)) {
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/verifikation/${entryId}`, { method: 'DELETE' });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
-
-            genericEntryModal.hide();
-            alert('Posten har raderats.');
-            location.reload();
-
-        } catch (error) {
-            alert(`Kunde inte radera posten: ${error.message}`);
-        }
-    });
-
-    // Upload form logic
     const uploadForm = document.getElementById('multi-upload-form');
-    const progressBar = document.querySelector('.progress-bar');
-    const progressContainer = document.querySelector('.progress');
+    const uploadButton = document.getElementById('upload-btn');
+    const spinner = uploadButton.querySelector('.spinner-border');
 
-    uploadForm.addEventListener('submit', function(e) {
+    uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
+        spinner.classList.remove('d-none');
+        uploadButton.disabled = true;
+
         const formData = new FormData(uploadForm);
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', uploadForm.action, true);
-        xhr.upload.onprogress = function(e) {
-            if (e.lengthComputable) {
-                const percentComplete = (e.loaded / e.total) * 100;
-                progressBar.style.width = percentComplete + '%';
-                progressBar.textContent = Math.round(percentComplete) + '%';
-                progressContainer.style.display = 'block';
-            }
-        };
-        xhr.onload = function() {
-            progressContainer.style.display = 'none';
-            if (xhr.status === 200) {
-                location.reload();
+        
+        try {
+            const response = await fetch(uploadForm.action, {
+                method: 'POST',
+                body: formData
+            });
+            if (response.ok) {
+                showBootstrapAlert('Uppladdning lyckades! Sidan laddas om.', 'success');
+                setTimeout(() => location.reload(), 1500);
             } else {
-                alert('Ett fel inträffade vid uppladdningen.');
+                const result = await response.json();
+                throw new Error(result.error || 'Ett fel inträffade vid uppladdningen.');
             }
-        };
-        xhr.send(formData);
+        } catch (error) {
+            showBootstrapAlert(error.message, 'danger');
+        } finally {
+            spinner.classList.add('d-none');
+            uploadButton.disabled = false;
+        }
     });
 });
 </script>

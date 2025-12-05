@@ -1,0 +1,258 @@
+{% extends 'base.html' %}
+{% block title %}Matcha Transaktioner - {{ company.name }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2 class="h2 mb-0 fw-bold text-primary">
+                <i class="bi bi-link-45deg me-2"></i>
+                Matcha Transaktioner: {{ company.name }}
+            </h2>
+            <p class="text-muted mt-2">Välj en eller flera poster från varje kolumn för att matcha dem mot varandra.</p>
+        </div>
+    </div>
+
+    <!-- Matchnings-Interface -->
+    <div class="row">
+        <!-- Kolumn 1: Transaktioner -->
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Obetalda Transaktioner</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group" id="transactions-list">
+                        {% for trans, remaining_amount in unmatched_transactions %}
+                            <li class="list-group-item">
+                                <input class="form-check-input me-1" type="checkbox" value="{{ trans.id }}" data-amount="{{ remaining_amount }}">
+                                {{ trans.bokforingsdag.strftime('%Y-%m-%d') }} - {{ trans.referens }}
+                                <span class="badge bg-primary rounded-pill float-end">{{ "%.2f"|format(remaining_amount) }} kr</span>
+                            </li>
+                        {% else %}
+                            <li class="list-group-item text-muted">Inga omatchade transaktioner.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kolumn 2: Fakturor -->
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Obetalda Fakturor</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group" id="invoices-list">
+                        {% for invoice, remaining_amount in unpaid_invoices %}
+                            <li class="list-group-item">
+                                <input class="form-check-input me-1" type="checkbox" value="{{ invoice.id }}" data-amount="{{ remaining_amount }}">
+                                #{{ invoice.number }} - {{ invoice.client.name }}
+                                <span class="badge bg-success rounded-pill float-end">{{ "%.2f"|format(remaining_amount) }} kr</span>
+                            </li>
+                        {% else %}
+                            <li class="list-group-item text-muted">Inga obetalda fakturor.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Kolumn 3: Bilagor -->
+        <div class="col-md-4">
+            <div class="card shadow-sm">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">Obetalda Bilagor</h5>
+                </div>
+                <div class="card-body">
+                    <ul class="list-group" id="attachments-list">
+                        {% for bilaga, remaining_amount in unpaid_bilagor %}
+                            <li class="list-group-item">
+                                <input class="form-check-input me-1" type="checkbox" value="{{ bilaga.id }}" data-amount="{{ remaining_amount }}">
+                                {{ bilaga.filename }}
+                                <span class="badge bg-warning text-dark rounded-pill float-end">{{ "%.2f"|format(remaining_amount) }} kr</span>
+                            </li>
+                        {% else %}
+                            <li class="list-group-item text-muted">Inga obetalda bilagor.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Matchningsknapp och Summering -->
+    <div class="row mt-4">
+        <div class="col-12 text-center">
+            <div class="d-inline-block p-3 bg-white rounded shadow-lg">
+                <div class="d-flex align-items-center gap-3">
+                    <div>
+                        <strong>Transaktioner:</strong> <span id="sum-transactions">0.00</span> kr
+                    </div>
+                    <div>
+                        <strong>Fakturor:</strong> <span id="sum-invoices">0.00</span> kr
+                    </div>
+                    <div>
+                        <strong>Bilagor:</strong> <span id="sum-attachments">0.00</span> kr
+                    </div>
+                    <button id="match-btn" class="btn btn-lg btn-success" disabled>
+                        <i class="bi bi-check2-circle me-1"></i> Matcha valda
+                    </button>
+                    <div class="vr"></div>
+                    <div>
+                        <strong>Differens:</strong> <span id="sum-diff" class="fw-bold">0.00</span> kr
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Matchningsmodal -->
+<div class="modal fade" id="matchModal" tabindex="-1" aria-labelledby="matchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="matchModalLabel">Bekräfta Matchning</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
+            </div>
+            <div class="modal-body">
+                <p>Systemet kommer att skapa följande matchningar. Justera beloppen vid behov.</p>
+                <form id="match-form">
+                    <div id="match-details-container">
+                        <!-- Matchningsdetaljer genereras här av JS -->
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
+                <button type="submit" form="match-form" class="btn btn-primary">Genomför Matchning</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const transactionCheckboxes = document.querySelectorAll('#transactions-list .form-check-input');
+    const invoiceCheckboxes = document.querySelectorAll('#invoices-list .form-check-input');
+    const attachmentCheckboxes = document.querySelectorAll('#attachments-list .form-check-input');
+
+    const sumTransactionsEl = document.getElementById('sum-transactions');
+    const sumInvoicesEl = document.getElementById('sum-invoices');
+    const sumAttachmentsEl = document.getElementById('sum-attachments');
+    const sumDiffEl = document.getElementById('sum-diff');
+    const matchBtn = document.getElementById('match-btn');
+    
+    const matchModal = new bootstrap.Modal(document.getElementById('matchModal'));
+    const matchDetailsContainer = document.getElementById('match-details-container');
+    const matchForm = document.getElementById('match-form');
+
+    function updateSums() {
+        let sumTransactions = 0;
+        transactionCheckboxes.forEach(cb => {
+            if (cb.checked) sumTransactions += parseFloat(cb.dataset.amount);
+        });
+
+        let sumInvoices = 0;
+        invoiceCheckboxes.forEach(cb => {
+            if (cb.checked) sumInvoices += parseFloat(cb.dataset.amount);
+        });
+
+        let sumAttachments = 0;
+        attachmentCheckboxes.forEach(cb => {
+            if (cb.checked) sumAttachments += parseFloat(cb.dataset.amount);
+        });
+
+        sumTransactionsEl.textContent = sumTransactions.toFixed(2);
+        sumInvoicesEl.textContent = sumInvoices.toFixed(2);
+        sumAttachmentsEl.textContent = sumAttachments.toFixed(2);
+
+        const diff = sumTransactions - (sumInvoices + sumAttachments);
+        sumDiffEl.textContent = diff.toFixed(2);
+        sumDiffEl.classList.toggle('text-danger', Math.abs(diff) > 0.01);
+        sumDiffEl.classList.toggle('text-success', Math.abs(diff) <= 0.01);
+
+        matchBtn.disabled = Math.abs(diff) > 0.01;
+    }
+
+    transactionCheckboxes.forEach(cb => cb.addEventListener('change', updateSums));
+    invoiceCheckboxes.forEach(cb => cb.addEventListener('change', updateSums));
+    attachmentCheckboxes.forEach(cb => cb.addEventListener('change', updateSums));
+
+    matchBtn.addEventListener('click', function () {
+        matchDetailsContainer.innerHTML = '';
+        const selectedTransactions = Array.from(transactionCheckboxes).filter(cb => cb.checked);
+        const selectedInvoices = Array.from(invoiceCheckboxes).filter(cb => cb.checked);
+        const selectedAttachments = Array.from(attachmentCheckboxes).filter(cb => cb.checked);
+
+        // Simple 1-to-many matching for now
+        if (selectedTransactions.length === 1 && (selectedInvoices.length > 0 || selectedAttachments.length > 0)) {
+            const trans = selectedTransactions[0];
+            
+            selectedInvoices.forEach(inv => {
+                const amount = inv.dataset.amount;
+                const detailHtml = `
+                    <div class="row mb-2 align-items-center">
+                        <div class="col-md-5">Transaktion: ${trans.nextSibling.textContent.trim()}</div>
+                        <div class="col-md-5">Faktura: ${inv.nextSibling.textContent.trim()}</div>
+                        <div class="col-md-2">
+                            <input type="number" class="form-control form-control-sm match-amount" value="${amount}" 
+                                   data-transaction-id="${trans.value}" data-invoice-id="${inv.value}" step="0.01">
+                        </div>
+                    </div>`;
+                matchDetailsContainer.insertAdjacentHTML('beforeend', detailHtml);
+            });
+             selectedAttachments.forEach(att => {
+                const amount = att.dataset.amount;
+                const detailHtml = `
+                    <div class="row mb-2 align-items-center">
+                        <div class="col-md-5">Transaktion: ${trans.nextSibling.textContent.trim()}</div>
+                        <div class="col-md-5">Bilaga: ${att.nextSibling.textContent.trim()}</div>
+                        <div class="col-md-2">
+                            <input type="number" class="form-control form-control-sm match-amount" value="${amount}" 
+                                   data-transaction-id="${trans.value}" data-attachment-id="${att.value}" step="0.01">
+                        </div>
+                    </div>`;
+                matchDetailsContainer.insertAdjacentHTML('beforeend', detailHtml);
+            });
+        }
+        // TODO: Add logic for many-to-1 and many-to-many
+        
+        matchModal.show();
+    });
+
+    matchForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        const matches = [];
+        document.querySelectorAll('.match-amount').forEach(input => {
+            matches.push({
+                transaction_id: input.dataset.transactionId,
+                invoice_id: input.dataset.invoiceId || null,
+                bilaga_id: input.dataset.attachmentId || null,
+                amount: input.value
+            });
+        });
+
+        try {
+            const response = await fetch('/api/matchningar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ matches: matches })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Ett okänt fel inträffade.');
+            
+            alert(result.message);
+            location.reload();
+        } catch (error) {
+            alert(`Kunde inte skapa matchning: ${error.message}`);
+        }
+    });
+});
+</script>
+{% endblock %}

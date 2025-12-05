@@ -1,0 +1,862 @@
+GET /api/v2/clients/4
+200
+{
+  "data": {
+    "id": 4,
+    "number": 1,
+    "name": "Google Inc",
+    "first_name": "",
+    "last_name": "",
+    "email": "",
+    "fax": "",
+    "phone": "",
+    "home_phone": "",
+    "mobile_phone": "",
+    "client_type": "company",
+    "org_number": "556677-8899",
+    "settings": {
+      "currency": "USD",
+      "discount": 0,
+      "email_attach_pdf": false,
+      "invoice_days": 30,
+      "invoice_delivery_method": "email",
+      "invoice_template": "croatia",
+      "locale": "sv",
+      "prices_inc_tax": "no",
+      "show_product_code": false,
+      "tax": 25
+    },
+    "address": {
+      "street_address": "1600 Amphitheatre Parkway",
+      "care_of": "",
+      "zip_code": "94043",
+      "city": "Mountain View",
+      "country": "SE"
+    }
+  }
+}
+
+
+
+List clients
+Params
+number
+Filter by client number
+
+org_number
+Filter by client org.number
+
+email
+Filter by client email
+
+sort
+Allowed sort fields: number, name. The direction is specified by prefixing the field with +/- (+ for ASC, - for DESC). Example: “sort=+field,-secondary_field”
+GET /api/v2/clients
+200
+{
+  "data": [
+    {
+      "id": 3,
+      "number": 1,
+      "name": "Google Inc",
+      "first_name": "",
+      "last_name": "",
+      "email": "",
+      "fax": "",
+      "phone": "",
+      "home_phone": "",
+      "mobile_phone": "",
+      "client_type": "company",
+      "org_number": "556677-8899",
+      "settings": {
+        "currency": "USD",
+        "discount": 0,
+        "email_attach_pdf": false,
+        "invoice_days": 30,
+        "invoice_delivery_method": "email",
+        "invoice_template": "croatia",
+        "locale": "sv",
+        "prices_inc_tax": "no",
+        "show_product_code": false,
+        "tax": 25
+      },
+      "address": {
+        "street_address": "1600 Amphitheatre Parkway",
+        "care_of": "",
+        "zip_code": "94043",
+        "city": "Mountain View",
+        "country": "SE"
+      }
+    }
+  ],
+  "paging": {
+    "total_pages": 1,
+    "current_page": 1,
+    "next": null,
+    "previous": null
+  }
+}
+
+Create a client
+Params
+number
+Client number
+
+first_name
+Must be present if client is an individual.
+last_name
+Must be present if client is an individual.
+email
+Must be valid email if used.
+company
+Must be present unless client is an individual.
+phone
+home_phone
+mobile_phone
+fax
+org_number
+client_type
+Is the client an individual (not a business)? One of: “company”, “individual” (defaults to “company”)
+
+web
+vat_number
+gln
+Global Location Number (e-invoice address)
+
+settings Must be a Hash
+settings[invoice_delivery_method]
+One of: “email”, “email_and_sms”, “letter”, “e_invoice”
+
+settings[e_invoice]
+Boolean. If possible, the invoice will be sent as an e-invoice.
+
+settings[invoice_days]
+Default for new invoices to this client. Defaults to global setting.
+
+settings[locale]
+Default for new invoices to this client. Defaults to global setting.
+
+settings[currency]
+Default for new invoices to this client. Defaults to global setting.
+
+settings[email_attach_pdf]
+Boolean. Attach PDF when sending invoices by email. Useful if the recipient needs the PDF for automatic scanning.
+
+address Must be a Hash
+address[street_address]
+address[care_of]
+This field (if present) is printed as the first line in the address. No “care of” prefix is added by the application, so you have to do this yourself. This makes it possible to use the field for other purposes, e.g. “Att.”
+
+address[zip_code]
+address[city]
+address[country]
+
+POST /api/v2/clients
+{
+  "first_name": "Nils",
+  "last_name": "Eriksson",
+  "address": {
+    "street_address": "Testvägen",
+    "care_of": "Någon",
+    "zip_code": "12345",
+    "city": "Karlstad",
+    "country": "SE"
+  },
+  "mobile_phone": "46701234567",
+  "email": "test@test.com",
+  "fax": "",
+  "phone": "070 751 51 66",
+  "home_phone": "46701234567",
+  "client_type": "individual",
+  "org_number": "8001010043"
+}
+201
+{
+  "data": {
+    "id": 2,
+    "number": 1,
+    "name": "Nils Eriksson",
+    "first_name": "Nils",
+    "last_name": "Eriksson",
+    "email": "test@test.com",
+    "fax": "",
+    "phone": "070 751 51 66",
+    "home_phone": "46701234567",
+    "mobile_phone": "46701234567",
+    "client_type": "individual",
+    "org_number": "8001010043",
+    "settings": {
+      "currency": "SEK",
+      "discount": 0,
+      "email_attach_pdf": false,
+      "invoice_days": 30,
+      "invoice_delivery_method": "email",
+      "invoice_template": "croatia",
+      "locale": "sv",
+      "prices_inc_tax": "no",
+      "show_product_code": false,
+      "tax": 25
+    },
+    "address": {
+      "street_address": "Testvägen",
+      "care_of": "Någon",
+      "zip_code": "12345",
+      "city": "Karlstad",
+      "country": "SE"
+    }
+  }
+}
+
+
+POST /api/v2/clients
+{
+  "company": ""
+}
+422
+{
+  "errors": {
+    "company": [
+      {
+        "error": "blank"
+      }
+    ]
+  }
+}
+
+
+PUT
+/api/v2/clients/:id
+Update a client
+Params
+number
+Client number
+
+first_name
+Must be present if client is an individual.
+
+last_name
+Must be present if client is an individual.
+
+email
+Must be valid email if used.
+
+company
+Must be present unless client is an individual.
+
+phone
+home_phone
+mobile_phone
+fax
+org_number
+client_type
+Is the client an individual (not a business)? One of: “company”, “individual” (defaults to “company”)
+
+web
+vat_number
+gln
+Global Location Number (e-invoice address)
+
+settings Must be a Hash
+settings[invoice_delivery_method]
+One of: “email”, “email_and_sms”, “letter”, “e_invoice”
+
+settings[e_invoice]
+Boolean. If possible, the invoice will be sent as an e-invoice.
+
+settings[invoice_days]
+Default for new invoices to this client. Defaults to global setting.
+
+settings[locale]
+Default for new invoices to this client. Defaults to global setting.
+
+settings[currency]
+Default for new invoices to this client. Defaults to global setting.
+
+settings[email_attach_pdf]
+Boolean. Attach PDF when sending invoices by email. Useful if the recipient needs the PDF for automatic scanning.
+
+address Must be a Hash
+address[street_address]
+address[care_of]
+This field (if present) is printed as the first line in the address. No “care of” prefix is added by the application, so you have to do this yourself. This makes it possible to use the field for other purposes, e.g. “Att.”
+
+address[zip_code]
+address[city]
+address[country]
+
+Examples
+PUT /api/v2/clients/10
+{
+  "company": "After"
+}
+204
+
+
+Examples
+GET /api/v2/clients/4
+200
+{
+  "data": {
+    "id": 4,
+    "number": 1,
+    "name": "Google Inc",
+    "first_name": "",
+    "last_name": "",
+    "email": "",
+    "fax": "",
+    "phone": "",
+    "home_phone": "",
+    "mobile_phone": "",
+    "client_type": "company",
+    "org_number": "556677-8899",
+    "settings": {
+      "currency": "USD",
+      "discount": 0,
+      "email_attach_pdf": false,
+      "invoice_days": 30,
+      "invoice_delivery_method": "email",
+      "invoice_template": "croatia",
+      "locale": "sv",
+      "prices_inc_tax": "no",
+      "show_product_code": false,
+      "tax": 25
+    },
+    "address": {
+      "street_address": "1600 Amphitheatre Parkway",
+      "care_of": "",
+      "zip_code": "94043",
+      "city": "Mountain View",
+      "country": "SE"
+    }
+  }
+}
+
+GET
+/api/v2/invoices
+List invoices
+Params
+number
+Filter by number
+
+client_id
+Filter by client_id
+
+start_date
+Filter invoices from start_date to end_date (or today's date if end_date is omitted)
+
+end_date
+Filter invoices from start_date (or from the beginning of time if start_date is omitted) to end_date
+
+sort
+Allowed sort fields: number, date. The direction is specified by prefixing the field with +/- (+ for ASC, - for DESC).
+Example: “sort=+field,-secondary_field”
+
+
+API 2 /
+Invoices /
+create
+POST
+/api/v2/invoices
+Create an invoice
+Params
+number
+Invoice number. Defaults to +1 of highest number currently in account.
+
+date
+Date string in the format “yyyy-mm-dd”
+
+client_id
+Id of existing client. “client_id” OR “client” is required.
+
+days
+Number of days from “date” that invoice payment is due.
+
+our_reference
+Name of person who acts as reference at senders company
+
+your_reference
+Name of person who acts as reference at recievers company
+
+locale
+One of: “sv”, “en”, “da”, “nb”
+
+currency
+settings Must be a Hash
+settings[invoice_template]
+One of: “urban”, “clean”, “iconic”, “foxy”, “static”, “original”, “croatia”
+
+settings[show_product_code]
+Boolean. Should the invoice show the product code column?
+
+client Must be a Hash
+See documentation for 'create client' for detailed information about the client params. Note: it's not possible to update a client on a invoice update, only create a client on invoice create.
+
+
+Metadata: :only: :create
+rows Must be an Array of nested elements
+rows[id]
+rows[product_id]
+rows[discount]
+Discount in %
+
+rows[amount]
+How many units of this item? May be fractional (“1.5”).
+
+rows[text]
+Max length 255
+
+rows[product_code]
+Max length 30
+
+rows[product_name]
+Max length 255
+
+rows[product_unit]
+Max length 30
+
+rows[product_price]
+Price of this item. May be fractional (“9.95”).
+
+rows[product_tax]
+One of 25, 12, 6, 0
+
+rows[text_row]
+Boolean. Show this row as purely text?
+
+rows[sort_order]
+Examples
+# Create an invoice to an existing client.
+POST /api/v2/invoices
+{
+  "client_id": 1,
+  "rows": [
+    {
+      "product_name": "My product",
+      "product_tax": 25,
+      "product_price": "100",
+      "amount": "10"
+    },
+    {
+      "product_name": "My product 2",
+      "product_tax": 12,
+      "product_price": "100",
+      "amount": "10 st"
+    },
+    {
+      "text": "Some arbitrary text",
+      "text_row": true
+    }
+  ]
+}
+201
+{
+  "data": {
+    "id": 1,
+    "number": 1,
+    "date": "2021-01-25",
+    "client_id": 1,
+    "days": 30,
+    "our_reference": "",
+    "your_reference": "",
+    "sent": false,
+    "paid_at": null,
+    "locale": "sv",
+    "currency": "SEK",
+    "settings": {
+      "invoice_template": "croatia",
+      "prices_inc_tax": "no",
+      "show_product_code": false
+    },
+    "sum": "2370.0",
+    "net": "2000.0",
+    "tax": "370.0",
+    "tax_details": {
+      "25": "250.0",
+      "12": "120.0"
+    },
+    "address": {
+      "name": "Google Inc",
+      "street_address": "1600 Amphitheatre Parkway",
+      "care_of": "",
+      "zip_code": "940 43",
+      "city": "Mountain View",
+      "country": "SE"
+    },
+    "rows": [
+      {
+        "id": 1,
+        "product_id": 0,
+        "discount": 0,
+        "amount": "10.0",
+        "text": "",
+        "product_code": null,
+        "product_name": "My product",
+        "product_unit": "",
+        "product_price": "100.0",
+        "product_tax": 25,
+        "text_row": false,
+        "sort_order": 0,
+        "tax_deductible": false
+      },
+      {
+        "id": 2,
+        "product_id": 0,
+        "discount": 0,
+        "amount": "10.0",
+        "text": "",
+        "product_code": null,
+        "product_name": "My product 2",
+        "product_unit": "",
+        "product_price": "100.0",
+        "product_tax": 12,
+        "text_row": false,
+        "sort_order": 1,
+        "tax_deductible": false
+      },
+      {
+        "id": 3,
+        "product_id": 0,
+        "discount": 0,
+        "amount": "0.0",
+        "text": "Some arbitrary text",
+        "product_code": null,
+        "product_name": "",
+        "product_unit": "",
+        "product_price": "0.0",
+        "product_tax": 0,
+        "text_row": true,
+        "sort_order": 2,
+        "tax_deductible": false
+      }
+    ]
+  }
+}
+# Invalid invoice
+POST /api/v2/invoices
+{
+  "client_id": 0,
+  "date": "",
+  "rows": [
+    {
+      "product_code": "ABCD-ABCD-ABCD-ABCD-ABCD-ABCD-ABCD-"
+    }
+  ]
+}
+422
+{
+  "errors": {
+    "client_id": [
+      {
+        "error": "blank"
+      }
+    ],
+    "rows": [
+      {
+        "0": {
+          "rows.product_code": [
+            {
+              "error": "too_long",
+              "count": 30
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+# Create an invoice to a new client.
+POST /api/v2/invoices
+{
+  "date": "2021-01-25",
+  "client": {
+    "company": "Google",
+    "address": {
+      "street_address": "1600 Amphitheatre Parkway",
+      "zip_code": "94043",
+      "city": "Mountain View",
+      "country": "SE"
+    }
+  },
+  "rows": [
+    {
+      "product_name": "My product",
+      "product_tax": 25,
+      "product_price": "100",
+      "amount": "10"
+    }
+  ]
+}
+201
+{
+  "data": {
+    "id": 4,
+    "number": 1,
+    "date": "2021-01-25",
+    "client_id": 3,
+    "days": 30,
+    "our_reference": "",
+    "your_reference": "",
+    "sent": false,
+    "paid_at": null,
+    "locale": "sv",
+    "currency": "SEK",
+    "settings": {
+      "invoice_template": "croatia",
+      "prices_inc_tax": "no",
+      "show_product_code": false
+    },
+    "sum": "1250.0",
+    "net": "1000.0",
+    "tax": "250.0",
+    "tax_details": {
+      "25": "250.0"
+    },
+    "address": {
+      "name": "Google",
+      "street_address": "1600 Amphitheatre Parkway",
+      "care_of": "",
+      "zip_code": "940 43",
+      "city": "Mountain View",
+      "country": "SE"
+    },
+    "rows": [
+      {
+        "id": 7,
+        "product_id": 0,
+        "discount": 0,
+        "amount": "10.0",
+        "text": "",
+        "product_code": null,
+        "product_name": "My product",
+        "product_unit": "",
+        "product_price": "100.0",
+        "product_tax": 25,
+        "text_row": false,
+        "sort_order": 0,
+        "tax_deductible": false
+      }
+    ]
+  }
+}
+
+
+
+API 2 /
+Invoices /
+update
+PUT
+/api/v2/invoices/:id
+Update an invoice
+Params
+number
+Invoice number. Defaults to +1 of highest number currently in account.
+
+date
+Date string in the format “yyyy-mm-dd”
+
+client_id
+Id of existing client. “client_id” OR “client” is required.
+
+days
+Number of days from “date” that invoice payment is due.
+
+our_reference
+Name of person who acts as reference at senders company
+
+your_reference
+Name of person who acts as reference at recievers company
+
+locale
+One of: “sv”, “en”, “da”, “nb”
+
+currency
+settings Must be a Hash
+settings[invoice_template]
+One of: “urban”, “clean”, “iconic”, “foxy”, “static”, “original”, “croatia”
+
+settings[show_product_code]
+Boolean. Should the invoice show the product code column?
+
+rows Must be an Array of nested elements
+rows[id]
+rows[product_id]
+rows[discount]
+Discount in %
+
+rows[amount]
+How many units of this item? May be fractional (“1.5”).
+
+rows[text]
+Max length 255
+
+rows[product_code]
+Max length 30
+
+rows[product_name]
+Max length 255
+
+rows[product_unit]
+Max length 30
+
+rows[product_price]
+Price of this item. May be fractional (“9.95”).
+
+rows[product_tax]
+One of 25, 12, 6, 0
+
+rows[text_row]
+Boolean. Show this row as purely text?
+
+rows[sort_order]
+Examples
+# Update an existing invoice
+PUT /api/v2/invoices/11
+{
+  "date": "2021-01-26",
+  "rows": [
+    {
+      "id": 14,
+      "product_name": "Updated name"
+    }
+  ]
+}
+204
+
+
+
+API 2 /
+Invoices /
+show
+GET
+/api/v2/invoices/:id
+Show an invoice
+Examples
+GET /api/v2/invoices/10
+200
+{
+  "data": {
+    "id": 10,
+    "number": 1,
+    "date": "2021-01-25",
+    "client_id": 9,
+    "days": 30,
+    "our_reference": "",
+    "your_reference": "",
+    "sent": false,
+    "paid_at": null,
+    "locale": "sv",
+    "currency": "SEK",
+    "settings": {
+      "invoice_template": "croatia",
+      "prices_inc_tax": "no",
+      "show_product_code": false
+    },
+    "sum": "1250.0",
+    "net": "1000.0",
+    "tax": "250.0",
+    "tax_details": {
+      "25": "250.0"
+    },
+    "address": {
+      "name": "Google Inc",
+      "street_address": "1600 Amphitheatre Parkway",
+      "care_of": "",
+      "zip_code": "940 43",
+      "city": "Mountain View",
+      "country": "SE"
+    },
+    "rows": [
+      {
+        "id": 13,
+        "product_id": 0,
+        "discount": 0,
+        "amount": "5.0",
+        "text": "",
+        "product_code": null,
+        "product_name": "product",
+        "product_unit": "st",
+        "product_price": "200.0",
+        "product_tax": 25,
+        "text_row": false,
+        "sort_order": 0,
+        "tax_deductible": false
+      }
+    ]
+  }
+}
+
+
+API 2 /
+Invoices /
+send
+POST
+/api/v2/invoices/:id/send
+Send an invoice
+Params
+delivery_method Must be one of: email, letter, auto.
+Sends an invoice to the client. The “delivery_method” param is optional and defaults to “auto” (which in turn takes the delivery method from the client settings).
+
+Examples
+POST /api/v2/invoices/8/send
+422
+{
+  "error": "You must select at least one recipient."
+}
+
+ API 2 /
+Payments /
+create
+POST
+/api/v2/invoices/:invoice_id/payments
+Add payment
+Params
+paid_at
+What date was the payment made?
+
+Examples
+POST /api/v2/invoices/4/payments
+{
+  "paid_at": "2021-01-25"
+}
+201
+{
+  "data": {
+    "id": 1,
+    "paid_at": "2021-01-25",
+    "amount": "1250.0",
+    "invoice_id": 4
+  }
+}
+
+
+ API 2 /
+Payments /
+index
+GET
+/api/v2/invoices/:invoice_id/payments
+List payments
+Examples
+GET /api/v2/invoices/5/payments
+200
+{
+  "data": [
+    {
+      "id": 2,
+      "paid_at": "2021-01-25",
+      "amount": "100.0",
+      "invoice_id": 5
+    },
+    {
+      "id": 3,
+      "paid_at": "2021-01-25",
+      "amount": "200.0",
+      "invoice_id": 5
+    }
+  ],
+  "paging": {
+    "total_pages": 1,
+    "current_page": 1,
+    "next": null,
+    "previous": null
+  }
+}

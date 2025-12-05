@@ -1,9 +1,18 @@
+# -*- coding: utf-8 -*-
+"""
+Definierar API-slutpunkter (routes) för applikationen.
+
+Denna modul hanterar all server-side logik som svarar på anrop från frontend.
+Det inkluderar att hantera filuppladdningar, hämta data från databasen,
+anropa externa tjänster (som Gemini), skapa/uppdatera/radera bokföringsposter
+och hantera den nya matchningsfunktionen.
+"""
 import datetime
 import json
 from flask import jsonify, request, url_for, current_app, make_response, flash, redirect
 from bokforing_app.api import bp
 from bokforing_app import db
-from bokforing_app.models import Company, BankTransaction, BookkeepingEntry, Bilaga, Association, Setting, Konto, Invoice, InvoiceRow, Client
+from bokforing_app.models import Company, BankTransaction, BookkeepingEntry, Bilaga, Association, Setting, Konto, Invoice, InvoiceRow, Client, Matchning
 import bokforing_app.services.booking_service as booking_service
 import bokforing_app.services.sie_service as sie_service
 import bokforing_app.services.gemini_service as gemini_service
@@ -13,8 +22,31 @@ import os
 from sqlalchemy import extract
 from collections import defaultdict
 
+def _standardize_gemini_entries(entries):
+    """
+    Säkerställer att nycklarna från Geminis svar alltid mappas till applikationens interna format.
+    Gemini kan ibland använda 'account', medan frontend förväntar sig 'konto'.
+
+    Args:
+        entries (list): En lista av dictionaries från Geminis förslag.
+
+    Returns:
+        list: En standardiserad lista av dictionaries med nycklarna 'konto', 'debet', 'kredit'.
+    """
+    standardized = []
+    if not isinstance(entries, list):
+        return standardized
+    for entry in entries:
+        standardized.append({
+            'konto': entry.get('account') or entry.get('konto'),
+            'debet': entry.get('debit', 0) or entry.get('debet', 0),
+            'kredit': entry.get('credit', 0) or entry.get('kredit', 0)
+        })
+    return standardized
+
 @bp.route('/company/<int:company_id>/upload_csv', methods=['POST'])
 def upload_csv(company_id):
+    """Hanterar uppladdning och bearbetning av en CSV-fil med banktransaktioner."""
     if 'csv_file' not in request.files or not request.files['csv_file'].filename:
         flash("Ingen fil vald.", "danger")
         return redirect(url_for('main.bokforing_page', company_id=company_id))
@@ -40,6 +72,7 @@ def upload_csv(company_id):
 
 @bp.route('/transaction/handle_duplicate', methods=['POST'])
 def handle_duplicate():
+    """Godkänner eller raderar en transaktion som flaggats som en potentiell dubblett."""
     data = request.get_json()
     trans_id = data.get('id')
     action = data.get('action')
@@ -59,6 +92,7 @@ def handle_duplicate():
 
 @bp.route('/company/<int:company_id>/multi_upload_bilagor', methods=['POST'])
 def multi_upload_bilagor(company_id):
+    """Hanterar uppladdning av flera bilagor (underlag) samtidigt."""
     if 'files' not in request.files:
         return jsonify({'error': 'Inga filer valda'}), 400
     files = request.files.getlist('files')
@@ -79,8 +113,48 @@ def multi_upload_bilagor(company_id):
             return jsonify({'error': str(e)}), 500
     return jsonify(uploaded_files_data), 200
 
+@bp.route('/bilaga/<int:bilaga_id>/details', methods=['GET'])
+def get_bilaga_details(bilaga_id):
+    """Hämtar detaljerad information om en specifik bilaga."""
+    bilaga = Bilaga.query.get_or_404(bilaga_id)
+    return jsonify({
+        'id': bilaga.id,
+        'filename': bilaga.filename,
+        'fakturanr': bilaga.fakturanr,
+        'fakturadatum': bilaga.fakturadatum.strftime('%Y-%m-%d') if bilaga.fakturadatum else None,
+        'brutto_amount': bilaga.brutto_amount,
+        'netto_amount': bilaga.netto_amount,
+        'moms_amount': bilaga.moms_amount,
+        'suggested_konto': bilaga.suggested_konto,
+        'omvand_skattskyldighet': bilaga.omvand_skattskyldighet,
+        'url': url_for('static', filename=f'uploads/{bilaga.filepath.replace(os.path.sep, "/")}')
+    })
+
+@bp.route('/bilaga/<int:bilaga_id>/metadata', methods=['POST'])
+def save_bilaga_metadata(bilaga_id):
+    """Sparar metadata för en bilaga."""
+    bilaga = Bilaga.query.get_or_404(bilaga_id)
+    data = request.json
+    try:
+        bilaga.fakturadatum = datetime.datetime.strptime(data['fakturadatum'], '%Y-%m-%d').date() if data.get('fakturadatum') else None
+        bilaga.forfallodag = datetime.datetime.strptime(data['forfallodag'], '%Y-%m-%d').date() if data.get('forfallodag') else None
+        bilaga.fakturanr = data.get('fakturanr')
+        bilaga.ocr = data.get('ocr')
+        bilaga.brutto_amount = float(data['total_brutto']) if data.get('total_brutto') else None
+        bilaga.netto_amount = float(data['total_netto']) if data.get('total_netto') else None
+        bilaga.moms_amount = float(data['total_moms']) if data.get('total_moms') else None
+        bilaga.suggested_konto = data.get('suggested_konto')
+        bilaga.omvand_skattskyldighet = data.get('omvand_skattskyldighet', False)
+        
+        db.session.commit()
+        return jsonify({'message': 'Metadata sparad!'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 @bp.route('/company/<int:company_id>/invoices', methods=['GET'])
 def get_company_invoices(company_id):
+    """Hämtar en lista över fakturor för ett företag, t.ex. för att populera en dropdown."""
     query = Invoice.query.filter_by(company_id=company_id)
     if request.args.get('booked', 'true').lower() == 'false':
         query = query.filter(~Invoice.transactions.any())
@@ -96,6 +170,7 @@ def get_company_invoices(company_id):
 
 @bp.route('/company/<int:company_id>/attachments', methods=['GET'])
 def get_company_attachments(company_id):
+    """Hämtar en lista över bilagor för ett företag."""
     query = Bilaga.query.filter_by(company_id=company_id)
     if request.args.get('assigned', 'true').lower() == 'false':
         query = query.filter(~Bilaga.transactions.any())
@@ -112,6 +187,7 @@ def get_company_attachments(company_id):
 
 @bp.route('/verifikation/<int:trans_id>', methods=['GET'])
 def get_verifikation(trans_id):
+    """Hämtar all data för en enskild verifikation, inklusive kopplade underlag."""
     trans = BankTransaction.query.get_or_404(trans_id)
     bank_event_data = None
     if trans.status != 'manual' and trans.belopp != 0:
@@ -120,6 +196,12 @@ def get_verifikation(trans_id):
             'ref': trans.referens,
             'amount': trans.belopp
         }
+    
+    # Hämta omvänd_skattskyldighet från den första kopplade bilagan, om någon
+    omvand_skattskyldighet = False
+    if trans.attachments:
+        omvand_skattskyldighet = trans.attachments[0].omvand_skattskyldighet
+
     return jsonify({
         'id': trans.id,
         'bokforingsdag': trans.bokforingsdag.strftime('%Y-%m-%d'),
@@ -127,11 +209,48 @@ def get_verifikation(trans_id):
         'entries': [{'konto': e.konto, 'debet': e.debet, 'kredit': e.kredit} for e in trans.entries],
         'invoice_ids': [inv.id for inv in trans.invoices],
         'attachment_ids': [att.id for att in trans.attachments],
-        'bank_event': bank_event_data
+        'bank_event': bank_event_data,
+        'omvand_skattskyldighet': omvand_skattskyldighet
     })
+
+@bp.route('/company/<int:company_id>/moms_verifikationer', methods=['GET'])
+def get_moms_verifikationer(company_id):
+    """Hämtar verifikationer för ett specifikt momskonto och tidsperiod."""
+    konto_nr = request.args.get('konto')
+    year = request.args.get('year', type=int)
+    quarter = request.args.get('quarter', type=int)
+    month = request.args.get('month', type=int)
+
+    if not konto_nr or not year:
+        return jsonify({'error': 'Konto och år är obligatoriska parametrar.'}), 400
+
+    query = BankTransaction.query.join(BookkeepingEntry).filter(
+        BankTransaction.company_id == company_id,
+        BookkeepingEntry.konto == konto_nr,
+        extract('year', BankTransaction.bokforingsdag) == year
+    )
+
+    if quarter:
+        start_month = (quarter - 1) * 3 + 1
+        end_month = start_month + 2
+        query = query.filter(extract('month', BankTransaction.bokforingsdag).between(start_month, end_month))
+    elif month:
+        query = query.filter(extract('month', BankTransaction.bokforingsdag) == month)
+
+    transactions = query.order_by(BankTransaction.bokforingsdag.asc()).all()
+
+    results = [{
+        'id': t.id,
+        'bokforingsdag': t.bokforingsdag.strftime('%Y-%m-%d'),
+        'referens': t.referens,
+        'belopp': next((e.debet if e.debet > 0 else e.kredit for e in t.entries if e.konto == konto_nr), 0)
+    } for t in transactions]
+
+    return jsonify(results)
 
 @bp.route('/invoice/<int:invoice_id>/details', methods=['GET'])
 def get_invoice_details_api(invoice_id):
+    """Hämtar detaljerad information om en specifik faktura."""
     invoice = Invoice.query.get_or_404(invoice_id)
     return jsonify({
         'id': invoice.id,
@@ -146,6 +265,7 @@ def get_invoice_details_api(invoice_id):
 
 @bp.route('/invoice/<int:invoice_id>/mark_paid', methods=['POST'])
 def mark_invoice_as_paid(invoice_id):
+    """Markerar en faktura som betald i det externa systemet (Fakturan.nu) och lokalt."""
     invoice = Invoice.query.get_or_404(invoice_id)
     company = invoice.company
     if not company.fakturanu_key_id or not company.fakturanu_password:
@@ -167,6 +287,7 @@ def mark_invoice_as_paid(invoice_id):
 
 @bp.route('/invoice/<int:invoice_id>/ask_gemini', methods=['POST'])
 def ask_gemini_for_invoice_suggestion(invoice_id):
+    """Hämtar ett AI-genererat bokföringsförslag för en specifik faktura."""
     invoice = Invoice.query.get_or_404(invoice_id)
     try:
         general_rules_setting = Setting.query.filter_by(key='gemini_custom_prompt').first()
@@ -174,12 +295,17 @@ def ask_gemini_for_invoice_suggestion(invoice_id):
         gemini_response = gemini_service.get_suggestion_for_invoice(invoice, general_rules)
         if 'error' in gemini_response:
             return jsonify(gemini_response), 500
-        return jsonify({"suggestion": gemini_response.get('suggestion'), "source": "gemini"}), 200
+        
+        suggestion = gemini_response.get('suggestion', {})
+        suggestion['entries'] = _standardize_gemini_entries(suggestion.get('entries'))
+        
+        return jsonify({"suggestion": suggestion, "source": "gemini"}), 200
     except Exception as e:
         return jsonify({'error': f"Ett oväntat fel inträffade: {str(e)}"}), 500
 
 @bp.route('/invoices/batch_book_ai', methods=['POST'])
 def batch_book_invoices_ai():
+    """Bokför flera fakturor samtidigt med hjälp av AI-förslag."""
     data = request.get_json()
     invoice_ids = data.get('invoice_ids', [])
     company_id = data.get('company_id')
@@ -201,9 +327,13 @@ def batch_book_invoices_ai():
             gemini_response = gemini_service.get_suggestion_for_invoice(invoice, general_rules)
             if 'error' in gemini_response:
                 raise Exception(gemini_response['error'])
+            
             suggestion = gemini_response.get('suggestion')
             if not suggestion or not suggestion.get('entries'):
                 raise Exception("Inget förslag kunde genereras från AI.")
+
+            standardized_entries = _standardize_gemini_entries(suggestion.get('entries'))
+
             new_trans = BankTransaction(
                 company_id=company_id,
                 bokforingsdag=datetime.datetime.strptime(suggestion['bokforingsdag'], '%Y-%m-%d').date(),
@@ -213,7 +343,7 @@ def batch_book_invoices_ai():
             )
             new_trans.invoices.append(invoice)
             db.session.add(new_trans)
-            for entry_data in suggestion['entries']:
+            for entry_data in standardized_entries:
                 new_entry = BookkeepingEntry(
                     bank_transaction=new_trans,
                     konto=entry_data['konto'],
@@ -230,6 +360,7 @@ def batch_book_invoices_ai():
 
 @bp.route('/company/<int:company_id>/verifikation', methods=['POST'])
 def create_verifikation(company_id):
+    """Skapar en helt ny, manuell verifikation."""
     data = request.json
     try:
         if not data.get('bokforingsdag') or not data.get('referens'):
@@ -238,6 +369,7 @@ def create_verifikation(company_id):
         total_kredit = sum(float(e.get('kredit', 0)) for e in data['entries'])
         if abs(total_debet - total_kredit) > 0.01:
             raise ValueError("Obalans! Debet och kredit summerar inte till samma värde.")
+        
         new_trans = BankTransaction(
             company_id=company_id,
             bokforingsdag=datetime.datetime.strptime(data['bokforingsdag'], '%Y-%m-%d').date(),
@@ -245,13 +377,24 @@ def create_verifikation(company_id):
             belopp=total_debet,
             status='processed'
         )
+        db.session.add(new_trans)
+
+        # Koppla bilagor och uppdatera deras status/metadata
+        omvand_skattskyldighet = data.get('omvand_skattskyldighet', False)
+        attachment_ids = data.get('attachment_ids', [])
+        if attachment_ids:
+            for att_id in attachment_ids:
+                attachment = Bilaga.query.get(att_id)
+                if attachment:
+                    new_trans.attachments.append(attachment)
+                    attachment.status = 'assigned'
+                    # Spara flaggan på bilagan
+                    attachment.omvand_skattskyldighet = omvand_skattskyldighet
+        
         for inv_id in data.get('invoice_ids', []):
             invoice = Invoice.query.get(inv_id)
             if invoice: new_trans.invoices.append(invoice)
-        for att_id in data.get('attachment_ids', []):
-            attachment = Bilaga.query.get(att_id)
-            if attachment: new_trans.attachments.append(attachment)
-        db.session.add(new_trans)
+
         for entry_data in data['entries']:
             new_entry = BookkeepingEntry(
                 bank_transaction=new_trans,
@@ -260,6 +403,7 @@ def create_verifikation(company_id):
                 kredit=float(entry_data.get('kredit', 0))
             )
             db.session.add(new_entry)
+            
         db.session.commit()
         return jsonify({'message': 'Verifikation skapad!', 'id': new_trans.id}), 201
     except Exception as e:
@@ -268,6 +412,7 @@ def create_verifikation(company_id):
 
 @bp.route('/verifikation/<int:trans_id>', methods=['PUT'])
 def update_verifikation(trans_id):
+    """Uppdaterar en befintlig verifikation."""
     trans = BankTransaction.query.get_or_404(trans_id)
     data = request.json
     try:
@@ -277,20 +422,28 @@ def update_verifikation(trans_id):
         total_kredit = sum(float(e.get('kredit', 0)) for e in data['entries'])
         if abs(total_debet - total_kredit) > 0.01:
             raise ValueError("Obalans! Debet och kredit summerar inte till samma värde.")
+        
         trans.bokforingsdag = datetime.datetime.strptime(data['bokforingsdag'], '%Y-%m-%d').date()
         trans.referens = data['referens']
         trans.status = 'processed'
         
+        # Hantera bilagor
+        omvand_skattskyldighet = data.get('omvand_skattskyldighet', False)
+        trans.attachments.clear()
+        for att_id in data.get('attachment_ids', []):
+            attachment = Bilaga.query.get(att_id)
+            if attachment:
+                trans.attachments.append(attachment)
+                attachment.status = 'assigned'
+                attachment.omvand_skattskyldighet = omvand_skattskyldighet
+
+        # Hantera fakturor
         trans.invoices.clear()
         for inv_id in data.get('invoice_ids', []):
             invoice = Invoice.query.get(inv_id)
             if invoice: trans.invoices.append(invoice)
-            
-        trans.attachments.clear()
-        for att_id in data.get('attachment_ids', []):
-            attachment = Bilaga.query.get(att_id)
-            if attachment: trans.attachments.append(attachment)
 
+        # Uppdatera bokföringsposter
         BookkeepingEntry.query.filter_by(bank_transaction_id=trans_id).delete()
         for entry_data in data['entries']:
             new_entry = BookkeepingEntry(
@@ -300,6 +453,7 @@ def update_verifikation(trans_id):
                 kredit=float(entry_data.get('kredit', 0))
             )
             db.session.add(new_entry)
+            
         db.session.commit()
         return jsonify({'message': 'Verifikation uppdaterad!', 'id': trans.id}), 200
     except Exception as e:
@@ -308,8 +462,12 @@ def update_verifikation(trans_id):
 
 @bp.route('/verifikation/<int:trans_id>', methods=['DELETE'])
 def delete_verifikation(trans_id):
+    """Raderar en verifikation permanent."""
     trans = BankTransaction.query.get_or_404(trans_id)
     try:
+        # Återställ status på kopplade bilagor
+        for att in trans.attachments:
+            att.status = 'unassigned'
         db.session.delete(trans)
         db.session.commit()
         return jsonify({'message': 'Verifikation har raderats permanent.'}), 200
@@ -317,8 +475,42 @@ def delete_verifikation(trans_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
+@bp.route('/matchningar', methods=['POST'])
+def create_matchning():
+    """Skapar en eller flera `Matchning`-objekt för att koppla delbetalningar."""
+    data = request.json
+    try:
+        if not data.get('matches'):
+            raise ValueError("Inga matchningar att skapa.")
+        for match_data in data['matches']:
+            new_match = Matchning(
+                amount=float(match_data['amount']),
+                transaction_id=int(match_data['transaction_id']),
+                invoice_id=int(match_data['invoice_id']) if match_data.get('invoice_id') else None,
+                bilaga_id=int(match_data['bilaga_id']) if match_data.get('bilaga_id') else None
+            )
+            db.session.add(new_match)
+        db.session.commit()
+        return jsonify({'message': f'{len(data["matches"])} matchningar har skapats!'}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@bp.route('/matchningar/<int:match_id>', methods=['DELETE'])
+def delete_matchning(match_id):
+    """Raderar en specifik matchning."""
+    match = Matchning.query.get_or_404(match_id)
+    try:
+        db.session.delete(match)
+        db.session.commit()
+        return jsonify({'message': 'Matchningen har raderats.'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 @bp.route('/transaction/<int:trans_id>/ask_gemini', methods=['POST'])
 def ask_gemini_for_suggestion(trans_id):
+    """Hämtar ett AI-genererat bokföringsförslag för en specifik banktransaktion."""
     transaction = BankTransaction.query.get_or_404(trans_id)
     try:
         if transaction.referens:
@@ -333,32 +525,43 @@ def ask_gemini_for_suggestion(trans_id):
                     }), 200
                 except Exception as e:
                     current_app.logger.warning(f"Regel för '{transaction.referens}' misslyckades: {e}. Anropar Gemini.")
+        
         general_rules_setting = Setting.query.filter_by(key='gemini_custom_prompt').first()
         general_rules = general_rules_setting.value if general_rules_setting else ''
         gemini_response = gemini_service.get_bokforing_suggestion_from_gemini(transaction, general_rules, "")
+        
         if 'error' in gemini_response:
             return jsonify(gemini_response), 500
+
+        suggestion = gemini_response.get('suggestion', {})
+        suggestion['entries'] = _standardize_gemini_entries(suggestion.get('entries'))
+        gemini_response['suggestion'] = suggestion
+
         if transaction.referens and 'rule' in gemini_response:
             keyword = transaction.referens.strip()
             association = Association.query.filter_by(keyword=keyword).first()
             if not association:
-                main_account = next((e['konto'] for e in gemini_response['suggestion']['entries'] if e['konto'] != '1930'), None)
+                main_account = next((e.get('konto') for e in suggestion['entries'] if e.get('konto') and e.get('konto') != '1930'), None)
                 if main_account:
                     association = Association(keyword=keyword, konto_nr=main_account)
                     db.session.add(association)
-            if association:
+            
+            if association and 'rule' in gemini_response:
                 association.rule = json.dumps(gemini_response['rule'])
                 db.session.commit()
+
         return jsonify({
-            "suggestion": gemini_response.get('suggestion'),
+            "suggestion": suggestion,
             "source": "gemini"
         }), 200
     except Exception as e:
         db.session.rollback()
+        current_app.logger.error(f"Oväntat fel i ask_gemini_for_suggestion: {e}", exc_info=True)
         return jsonify({'error': f"Ett oväntat fel inträffade: {str(e)}"}), 500
 
 @bp.route('/batch_book_with_ai', methods=['POST'])
 def batch_book_with_ai():
+    """Bokför flera transaktioner samtidigt med hjälp av AI-förslag."""
     data = request.get_json()
     transaction_ids = data.get('transaction_ids', [])
     if not transaction_ids:
@@ -387,11 +590,14 @@ def batch_book_with_ai():
                 gemini_response = gemini_service.get_bokforing_suggestion_from_gemini(transaction, general_rules, "")
                 if 'error' in gemini_response:
                     raise Exception(gemini_response['error'])
-                entries_data = gemini_response.get('suggestion', {}).get('entries', [])
+                
+                suggestion = gemini_response.get('suggestion', {})
+                entries_data = _standardize_gemini_entries(suggestion.get('entries'))
+
                 if keyword and 'rule' in gemini_response:
                     association = all_associations.get(keyword)
                     if not association:
-                        main_account = next((e['konto'] for e in entries_data if e['konto'] != '1930'), None)
+                        main_account = next((e.get('konto') for e in entries_data if e.get('konto') and e.get('konto') != '1930'), None)
                         if main_account:
                             association = Association(keyword=keyword, konto_nr=main_account)
                             db.session.add(association)
@@ -418,6 +624,7 @@ def batch_book_with_ai():
 
 @bp.route('/company/<int:company_id>/generate_sie', methods=['POST'])
 def generate_sie(company_id):
+    """Genererar och returnerar en SIE-fil för nedladdning."""
     content, error = sie_service.generate_sie_content(company_id)
     if error:
         flash(error, "danger")
@@ -431,6 +638,7 @@ def generate_sie(company_id):
     
 @bp.route('/ai_settings', methods=['GET'])
 def get_ai_settings():
+    """Hämtar alla AI-inställningar (associationer och custom prompt)."""
     associations = Association.query.order_by(Association.keyword).all()
     grouped_associations = {}
     for a in associations:
@@ -450,6 +658,7 @@ def get_ai_settings():
 
 @bp.route('/ai_settings/prompt', methods=['POST'])
 def save_ai_prompt():
+    """Sparar den anpassade prompten för Gemini."""
     data = request.json
     prompt_text = data.get('prompt', '')
     setting = Setting.query.filter_by(key='gemini_custom_prompt').first()
@@ -463,6 +672,7 @@ def save_ai_prompt():
 
 @bp.route('/ai_settings/association', methods=['POST'])
 def add_association():
+    """Lägger till en ny association mellan ett nyckelord och ett konto."""
     data = request.json
     keyword = data.get('keyword')
     konto_nr = data.get('konto_nr')
@@ -482,6 +692,7 @@ def add_association():
 
 @bp.route('/ai_settings/association/<int:assoc_id>', methods=['PUT'])
 def update_association(assoc_id):
+    """Uppdaterar en befintlig association."""
     association = Association.query.get_or_404(assoc_id)
     data = request.json
     new_keyword = data.get('keyword', association.keyword)
@@ -495,6 +706,7 @@ def update_association(assoc_id):
 
 @bp.route('/ai_settings/association/<int:assoc_id>', methods=['DELETE'])
 def delete_association(assoc_id):
+    """Raderar en association."""
     association = Association.query.get_or_404(assoc_id)
     db.session.delete(association)
     db.session.commit()

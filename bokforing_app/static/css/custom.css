@@ -1,0 +1,124 @@
+/* --- Tema-variabler --- */
+:root,
+[data-bs-theme="light"] {
+    --primary-color: #0d6efd;
+    --secondary-color: #495057; /* Mörkare grå */
+    --success-color: #198754;
+    --danger-color: #dc3545;
+    --background-color: #f8f9fa;
+    --text-color: #212529;
+    --card-bg: #ffffff;
+    --border-color: rgba(0, 0, 0, 0.2); /* Starkare ram */
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --font-family: 'Roboto', sans-serif;
+    --font-size-base: 1rem;
+    --spacing-unit: 1rem;
+}
+
+[data-bs-theme="dark"] {
+    --primary-color: #4dabf7; /* Ljusare blå */
+    --secondary-color: #ced4da; /* Ljusare grå */
+    --success-color: #2aa370; /* Ljusare grön */
+    --danger-color: #e35b69; /* Ljusare röd */
+    --background-color: #212529;
+    --text-color: #e9ecef;
+    --card-bg: #2b3035;
+    --border-color: rgba(255, 255, 255, 0.2);
+    --shadow-color: rgba(0, 0, 0, 0.3);
+}
+
+/* --- Globala stilar --- */
+body {
+    font-family: var(--font-family);
+    font-size: var(--font-size-base);
+    color: var(--text-color);
+    background-color: var(--background-color);
+}
+
+.card, .modal-content {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    box-shadow: 0 0.125rem 0.25rem var(--shadow-color);
+    margin-bottom: var(--spacing-unit);
+    color: var(--text-color);
+}
+
+.card-header {
+    background-color: var(--card-bg);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 500;
+}
+
+.table {
+    --bs-table-color: var(--text-color);
+    --bs-table-bg: transparent; /* Låt card-bg styra */
+    --bs-table-border-color: var(--border-color);
+    --bs-table-striped-color: var(--text-color);
+    --bs-table-striped-bg: rgba(0, 0, 0, 0.02);
+    --bs-table-hover-color: var(--text-color);
+    --bs-table-hover-bg: rgba(0, 0, 0, 0.04);
+}
+
+[data-bs-theme="dark"] .table {
+    --bs-table-striped-bg: rgba(255, 255, 255, 0.03);
+    --bs-table-hover-bg: rgba(255, 255, 255, 0.05);
+}
+
+.table th, .table td {
+    padding: calc(var(--spacing-unit) / 1.5);
+    vertical-align: middle;
+}
+
+/* --- Komponent-specifika stilar --- */
+.sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    padding: 48px 0 0;
+    box-shadow: inset -1px 0 0 var(--border-color);
+    background-color: var(--card-bg);
+}
+
+@media (max-width: 767.98px) {
+  .sidebar {
+    top: 56px;
+  }
+}
+
+.sidebar .nav-link {
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.sidebar .nav-link.active, .sidebar .nav-link:hover {
+    color: var(--primary-color);
+}
+
+.modal-header, .modal-footer {
+    border-bottom-color: var(--border-color);
+    border-top-color: var(--border-color);
+}
+
+/* --- Tredjepartsbibliotek --- */
+[data-bs-theme="dark"] .ts-control {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+[data-bs-theme="dark"] .ts-dropdown {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-bs-theme="dark"] .ts-dropdown .ts-option {
+    color: var(--text-color);
+}
+
+[data-bs-theme="dark"] .ts-dropdown .ts-option.active,
+[data-bs-theme="dark"] .ts-dropdown .ts-option:hover {
+    background-color: var(--primary-color);
+    color: #fff;
+}
