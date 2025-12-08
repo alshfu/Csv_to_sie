@@ -19,7 +19,7 @@ import bokforing_app.services.gemini_service as gemini_service
 import bokforing_app.services.fakturanu_service as fakturanu_service
 from bokforing_app.services.rule_engine import apply_rule
 import os
-from sqlalchemy import extract
+from sqlalchemy import extract, or_
 from collections import defaultdict
 
 def _standardize_gemini_entries(entries):
@@ -69,6 +69,24 @@ def upload_csv(company_id):
         db.session.rollback()
         flash(f"Ett fel inträffade vid bearbetning av CSV: {e}", "danger")
     return redirect(url_for('main.bokforing_page', company_id=company_id))
+
+@bp.route('/company/<int:company_id>/unprocessed_transactions', methods=['GET'])
+def get_unprocessed_transactions(company_id):
+    """Hämtar alla obearbetade transaktioner för ett företag i JSON-format för bootstrap-table."""
+    transactions = BankTransaction.query.filter(
+        BankTransaction.company_id == company_id,
+        or_(BankTransaction.status == 'unprocessed', BankTransaction.status == 'pending_duplicate')
+    ).order_by(BankTransaction.bokforingsdag.desc()).all()
+    
+    data = [{
+        'id': t.id,
+        'bokforingsdag': t.bokforingsdag.strftime('%Y-%m-%d'),
+        'referens': t.referens,
+        'belopp': t.belopp,
+        'status': t.status
+    } for t in transactions]
+    
+    return jsonify(data)
 
 @bp.route('/transaction/handle_duplicate', methods=['POST'])
 def handle_duplicate():
@@ -510,22 +528,34 @@ def delete_matchning(match_id):
 
 @bp.route('/transaction/<int:trans_id>/ask_gemini', methods=['POST'])
 def ask_gemini_for_suggestion(trans_id):
-    """Hämtar ett AI-genererat bokföringsförslag för en specifik banktransaktion."""
+    """
+    Hämtar ett bokföringsförslag. Först via en lokal regel, annars via Gemini.
+    """
     transaction = BankTransaction.query.get_or_404(trans_id)
+    
+    # Steg 1: Försök att hitta och tillämpa en lokal regel
+    if transaction.referens:
+        association = Association.query.filter_by(keyword=transaction.referens.strip()).first()
+        if association and association.rule:
+            try:
+                rule_dict = json.loads(association.rule)
+                generated_entries = apply_rule(transaction, rule_dict)
+                # Om regeln lyckas, returnera direkt
+                return jsonify({
+                    "suggestion": {
+                        "description": rule_dict.get("description", transaction.referens),
+                        "entries": generated_entries
+                    },
+                    "source": "rule"
+                }), 200
+            except Exception as e:
+                # Om regeln misslyckas, logga och returnera ett tydligt fel till användaren
+                error_msg = f"En matchande regel hittades för '{transaction.referens}', men den misslyckades: {e}"
+                current_app.logger.error(error_msg)
+                return jsonify({'error': error_msg}), 500
+    
+    # Steg 2: Om ingen regel finns (eller om transaktionen saknar referens), anropa Gemini
     try:
-        if transaction.referens:
-            association = Association.query.filter_by(keyword=transaction.referens.strip()).first()
-            if association and association.rule:
-                try:
-                    rule_dict = json.loads(association.rule)
-                    generated_entries = apply_rule(transaction, rule_dict)
-                    return jsonify({
-                        "suggestion": {"description": rule_dict.get("description", transaction.referens), "entries": generated_entries},
-                        "source": "rule"
-                    }), 200
-                except Exception as e:
-                    current_app.logger.warning(f"Regel för '{transaction.referens}' misslyckades: {e}. Anropar Gemini.")
-        
         general_rules_setting = Setting.query.filter_by(key='gemini_custom_prompt').first()
         general_rules = general_rules_setting.value if general_rules_setting else ''
         gemini_response = gemini_service.get_bokforing_suggestion_from_gemini(transaction, general_rules, "")
@@ -537,18 +567,22 @@ def ask_gemini_for_suggestion(trans_id):
         suggestion['entries'] = _standardize_gemini_entries(suggestion.get('entries'))
         gemini_response['suggestion'] = suggestion
 
+        # Steg 3: Spara en ny regel om Gemini ger ett bra svar
         if transaction.referens and 'rule' in gemini_response:
             keyword = transaction.referens.strip()
-            association = Association.query.filter_by(keyword=keyword).first()
-            if not association:
+            # Kontrollera igen om en association redan finns innan vi skapar en ny
+            existing_association = Association.query.filter_by(keyword=keyword).first()
+            if not existing_association:
                 main_account = next((e.get('konto') for e in suggestion['entries'] if e.get('konto') and e.get('konto') != '1930'), None)
                 if main_account:
-                    association = Association(keyword=keyword, konto_nr=main_account)
-                    db.session.add(association)
-            
-            if association and 'rule' in gemini_response:
-                association.rule = json.dumps(gemini_response['rule'])
-                db.session.commit()
+                    new_association = Association(keyword=keyword, konto_nr=main_account, rule=json.dumps(gemini_response['rule']))
+                    db.session.add(new_association)
+                    db.session.commit()
+            # Om en association finns men saknar regel, uppdatera den
+            elif not existing_association.rule and 'rule' in gemini_response:
+                 existing_association.rule = json.dumps(gemini_response['rule'])
+                 db.session.commit()
+
 
         return jsonify({
             "suggestion": suggestion,
@@ -556,8 +590,9 @@ def ask_gemini_for_suggestion(trans_id):
         }), 200
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Oväntat fel i ask_gemini_for_suggestion: {e}", exc_info=True)
+        current_app.logger.error(f"Oväntat fel i Gemini-anropet: {e}", exc_info=True)
         return jsonify({'error': f"Ett oväntat fel inträffade: {str(e)}"}), 500
+
 
 @bp.route('/batch_book_with_ai', methods=['POST'])
 def batch_book_with_ai():

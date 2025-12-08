@@ -26,7 +26,7 @@
         <div class="card-header d-flex justify-content-between align-items-center">
             Nyckelordsassociationer och Regler
             <button id="add-association-btn" class="btn btn-success">
-                <i class="bi bi-plus-circle me-2"></i>Skapa ny association
+                <i class="bi bi-plus-circle me-2"></i>Skapa ny regel
             </button>
         </div>
         <div class="card-body">
@@ -48,33 +48,56 @@
 
 <!-- Modal för att redigera/skapa association -->
 <div class="modal fade" id="associationModal" tabindex="-1" aria-labelledby="associationModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="associationModalLabel">Redigera Association</h5>
+                <h5 class="modal-title" id="associationModalLabel">Skapa/Redigera Regel</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Stäng"></button>
             </div>
             <div class="modal-body">
                 <form id="association-form">
                     <input type="hidden" id="association-id">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="mb-3">
+                                <label for="association-keyword" class="form-label">Nyckelord (exakt text från transaktionen)</label>
+                                <input type="text" class="form-control" id="association-keyword" required>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                             <div class="mb-3">
+                                <label for="association-vat" class="form-label">Momssats</label>
+                                <select id="association-vat" class="form-select">
+                                    <option value="0">0% (Ingen moms)</option>
+                                    <option value="6">6%</option>
+                                    <option value="12">12%</option>
+                                    <option value="25">25%</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                     <div class="mb-3">
-                        <label for="association-konto" class="form-label">Konto</label>
+                        <label for="association-konto" class="form-label">Huvudkonto (Kostnad/Intäkt)</label>
                         <select id="association-konto" class="form-select" required></select>
                     </div>
-                    <div class="mb-3">
-                        <label for="association-keyword" class="form-label">Nyckelord</label>
-                        <input type="text" class="form-control" id="association-keyword" required>
+                     <div class="mb-3">
+                        <label for="association-description" class="form-label">Beskrivning för verifikation</label>
+                        <input type="text" class="form-control" id="association-description" placeholder="Frivillig, t.ex. 'Inköp av kontorsmaterial'">
                     </div>
+                    
+                    <hr>
+                    
                     <div class="mb-3">
-                        <label for="association-rule" class="form-label">Regel (JSON, lämna tom för enkel koppling)</label>
-                        <textarea class="form-control" id="association-rule" rows="8" placeholder='ex: {"description": "Drivmedel (25%)", "entries": [{"konto": "5611", "debet": "TOTAL * 0.8"}, ...]}'></textarea>
+                        <label for="association-rule" class="form-label">Genererad Regel (JSON)</label>
+                        <p class="text-muted small">Denna JSON genereras automatiskt. Du kan redigera den manuellt för mer avancerade regler.</p>
+                        <textarea class="form-control" id="association-rule" rows="9"></textarea>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-danger me-auto" id="delete-association-btn">Radera</button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Avbryt</button>
-                <button type="submit" form="association-form" class="btn btn-primary">Spara</button>
+                <button type="submit" form="association-form" class="btn btn-primary">Spara Regel</button>
             </div>
         </div>
     </div>
@@ -96,6 +119,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const associationIdInput = document.getElementById('association-id');
     const associationKontoSelect = document.getElementById('association-konto');
     const associationKeywordInput = document.getElementById('association-keyword');
+    const associationVatSelect = document.getElementById('association-vat');
+    const associationDescriptionInput = document.getElementById('association-description');
     const associationRuleTextarea = document.getElementById('association-rule');
     const deleteAssociationBtn = document.getElementById('delete-association-btn');
 
@@ -103,15 +128,65 @@ document.addEventListener('DOMContentLoaded', function() {
     let tomSelectKonto;
 
     // Fyll kontoplan-selectorn i modalen
-    associationKontoSelect.innerHTML = Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}">${nr} - ${desc}</option>`).join('');
+    associationKontoSelect.innerHTML = '<option value="">Välj ett konto...</option>' + Object.entries(kontoplan).map(([nr, desc]) => `<option value="${nr}">${nr} - ${desc}</option>`).join('');
     tomSelectKonto = new TomSelect(associationKontoSelect, {create: false, sortField: {field: "text", direction: "asc"}});
+
+    function generateRule() {
+        const konto = tomSelectKonto.getValue();
+        const vatRate = parseInt(associationVatSelect.value, 10);
+        const description = associationDescriptionInput.value || associationKeywordInput.value;
+
+        if (!konto) {
+            associationRuleTextarea.value = '';
+            return;
+        }
+
+        const isIncome = konto.startsWith('3');
+        const bankAccount = '1930';
+        const vatAccount = isIncome ? '2611' : '2641'; // Utgående vs Ingående moms
+
+        let rule = {
+            description: description,
+            vat_rate: vatRate,
+            entries: []
+        };
+
+        if (vatRate > 0) {
+            rule.entries.push({
+                konto: konto,
+                debet: isIncome ? "0" : "NET_AMOUNT",
+                kredit: isIncome ? "NET_AMOUNT" : "0"
+            });
+            rule.entries.push({
+                konto: vatAccount,
+                debet: isIncome ? "0" : "VAT_AMOUNT",
+                kredit: isIncome ? "VAT_AMOUNT" : "0"
+            });
+        } else {
+            rule.entries.push({
+                konto: konto,
+                debet: isIncome ? "0" : "ABS_AMOUNT",
+                kredit: isIncome ? "ABS_AMOUNT" : "0"
+            });
+        }
+
+        rule.entries.push({
+            konto: bankAccount,
+            debet: isIncome ? "ABS_AMOUNT" : "0",
+            kredit: isIncome ? "0" : "ABS_AMOUNT"
+        });
+        
+        associationRuleTextarea.value = JSON.stringify(rule, null, 2);
+    }
 
     function renderAssociations() {
         const kontoFilter = searchKontoInput.value.toLowerCase();
         const keywordFilter = searchKeywordInput.value.toLowerCase();
         let html = '';
 
-        for (const kontoNr in allData.associations_by_account) {
+        const sortedKontoNrs = Object.keys(allData.associations_by_account).sort();
+
+        for (const kontoNr of sortedKontoNrs) {
             const kontoDesc = kontoplan[kontoNr] || 'Okänt konto';
             const associations = allData.associations_by_account[kontoNr];
 
@@ -125,16 +200,28 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="list-group">`;
                 
                 filteredAssociations.forEach(assoc => {
+                    let ruleInfo = '';
+                    try {
+                        const rule = JSON.parse(assoc.rule);
+                        if (rule.vat_rate > 0) {
+                            ruleInfo = `<span class="badge bg-primary">${rule.vat_rate}% moms</span>`;
+                        } else {
+                            ruleInfo = `<span class="badge bg-secondary">Regel</span>`;
+                        }
+                    } catch {
+                         ruleInfo = assoc.rule ? `<span class="badge bg-info">Avancerad Regel</span>` : '';
+                    }
+
                     html += `<button type="button" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center edit-association-btn" 
                                     data-assoc-id="${assoc.id}" data-konto-nr="${kontoNr}">
                                 ${assoc.keyword}
-                                ${assoc.rule ? '<span class="badge bg-info">Avancerad Regel</span>' : ''}
+                                ${ruleInfo}
                             </button>`;
                 });
                 html += `</div></div>`;
             }
         }
-        associationsListEl.innerHTML = html || '<p class="text-muted">Inga associationer matchar din sökning.</p>';
+        associationsListEl.innerHTML = html || '<p class="text-muted">Inga regler matchar din sökning.</p>';
     }
 
     async function fetchData() {
@@ -152,6 +239,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Event Listeners ---
     searchKontoInput.addEventListener('input', renderAssociations);
     searchKeywordInput.addEventListener('input', renderAssociations);
+    tomSelectKonto.on('change', generateRule);
+    associationVatSelect.addEventListener('change', generateRule);
+    associationDescriptionInput.addEventListener('input', generateRule);
+    associationKeywordInput.addEventListener('input', generateRule);
+
 
     promptForm.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -162,9 +254,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 body: JSON.stringify({ prompt: promptTextarea.value })
             });
             if (!response.ok) throw new Error('Något gick fel.');
-            alert('Global instruktion sparad!');
+            showToast('Global instruktion sparad!', 'success');
         } catch (error) {
-            alert('Kunde inte spara instruktionen.');
+            showToast('Kunde inte spara instruktionen.', 'danger');
         }
     });
 
@@ -177,17 +269,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const kontoNr = button.dataset.kontoNr;
         const assoc = allData.associations_by_account[kontoNr].find(a => a.id == assocId);
 
-        document.getElementById('associationModalLabel').textContent = 'Redigera Association';
+        document.getElementById('associationModalLabel').textContent = 'Redigera Regel';
         associationIdInput.value = assoc.id;
         tomSelectKonto.setValue(kontoNr);
         associationKeywordInput.value = assoc.keyword;
         
-        // Formatera JSON snyggt i textarean
         try {
             const ruleObject = JSON.parse(assoc.rule);
             associationRuleTextarea.value = JSON.stringify(ruleObject, null, 2);
+            associationVatSelect.value = ruleObject.vat_rate || 0;
+            associationDescriptionInput.value = ruleObject.description || '';
         } catch {
             associationRuleTextarea.value = assoc.rule || '';
+            associationVatSelect.value = 0;
+            associationDescriptionInput.value = '';
         }
         
         deleteAssociationBtn.style.display = 'inline-block';
@@ -196,10 +291,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Öppna modal för att skapa ny
     document.getElementById('add-association-btn').addEventListener('click', () => {
-        document.getElementById('associationModalLabel').textContent = 'Skapa ny Association';
+        document.getElementById('associationModalLabel').textContent = 'Skapa ny Regel';
         associationForm.reset();
         tomSelectKonto.clear();
         associationIdInput.value = '';
+        associationRuleTextarea.value = '';
         deleteAssociationBtn.style.display = 'none';
         associationModal.show();
     });
@@ -212,14 +308,16 @@ document.addEventListener('DOMContentLoaded', function() {
         const method = id ? 'PUT' : 'POST';
 
         let ruleValue = associationRuleTextarea.value.trim();
-        // Validera JSON om fältet inte är tomt
         if (ruleValue) {
             try {
                 JSON.parse(ruleValue);
             } catch (jsonError) {
-                alert(`Ogiltig JSON i regelfältet: ${jsonError.message}`);
+                showToast(`Ogiltig JSON i regelfältet: ${jsonError.message}`, 'danger');
                 return;
             }
+        } else {
+            showToast('Regeln kan inte vara tom. Välj ett konto för att autogenerera den.', 'warning');
+            return;
         }
 
         const body = {
@@ -237,29 +335,30 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Okänt fel');
             
-            alert('Sparat!');
+            showToast('Regeln har sparats!', 'success');
+
             associationModal.hide();
-            fetchData(); // Ladda om datan och rendera listan på nytt
+            fetchData();
         } catch (error) {
-            alert(`Kunde inte spara: ${error.message}`);
+            showToast(`Kunde inte spara: ${error.message}`, 'danger');
         }
     });
 
     // Radera
     deleteAssociationBtn.addEventListener('click', async () => {
         const id = associationIdInput.value;
-        if (!id || !confirm('Är du säker på att du vill radera denna association?')) return;
+        if (!id || !confirm('Är du säker på att du vill radera denna regel?')) return;
 
         try {
             const response = await fetch(`/api/ai_settings/association/${id}`, { method: 'DELETE' });
             const result = await response.json();
             if (!response.ok) throw new Error(result.error || 'Okänt fel');
 
-            alert('Raderad!');
+            showToast('Regeln har raderats!', 'success');
             associationModal.hide();
             fetchData();
         } catch (error) {
-            alert(`Kunde inte radera: ${error.message}`);
+            showToast(`Kunde inte radera: ${error.message}`, 'danger');
         }
     });
 

@@ -42,14 +42,26 @@ def get_all_bilagor(company_id):
 
 def process_csv_upload(file, company_id):
     """
-    Bearbetar en uppladdad CSV-fil. Nya transaktioner importeras som 'unprocessed'.
+    Bearbetar en uppladdad CSV-fil. Försöker först med det gamla formatet (semikolon-separerad),
+    sedan med det nya formatet (komma-separerad).
+    Nya transaktioner importeras som 'unprocessed'.
     Dubbletter flaggas som 'pending_duplicate' för manuell granskning.
     """
     try:
-        df = pd.read_csv(file, sep=';', header=1, decimal=',', encoding='latin-1')
+        # Försök med det gamla formatet
+        file.seek(0)
+        df = pd.read_csv(file, sep=';', header=1, decimal=',', encoding='latin-1', quoting=1)
         df = df.dropna(subset=['Bokföringsdag'])
-    except Exception as e:
-        raise ValueError(f"Kunde inte läsa CSV-filen. Kontrollera formatet. Fel: {e}")
+        column_map = {'Bokföringsdag': 'bokforingsdag', 'Referens': 'referens', 'Insättning/Uttag': 'belopp'}
+    except Exception:
+        try:
+            # Försök med det nya formatet
+            file.seek(0)
+            df = pd.read_csv(file, sep=',', header=None, decimal='.', encoding='utf-8', quoting=1)
+            df.columns = ['bokforingsdag', 'referens', 'belopp', 'valuta', 'saldo']
+            column_map = {'bokforingsdag': 'bokforingsdag', 'referens': 'referens', 'belopp': 'belopp'}
+        except Exception as e:
+            raise ValueError(f"Kunde inte läsa CSV-filen med något av de kända formaten. Fel: {e}")
 
     new_transactions_count = 0
     duplicates_found_count = 0
@@ -64,14 +76,13 @@ def process_csv_upload(file, company_id):
 
     for _, row in df.iterrows():
         try:
-            bokforingsdag = datetime.strptime(row['Bokföringsdag'], '%Y-%m-%d').date()
-            belopp = round(float(row['Insättning/Uttag']), 2)
-            referens = str(row['Referens'])
+            bokforingsdag = datetime.strptime(str(row[column_map['bokforingsdag']]), '%Y-%m-%d').date()
+            belopp = round(float(row[column_map['belopp']]), 2)
+            referens = str(row[column_map['referens']])
 
             current_transaction_tuple = (bokforingsdag, referens, belopp)
             is_duplicate = current_transaction_tuple in existing_set
 
-            # Skapa transaktionen med rätt status
             new_trans = BankTransaction(
                 company_id=company_id,
                 bokforingsdag=bokforingsdag,
@@ -87,7 +98,7 @@ def process_csv_upload(file, company_id):
                 new_transactions_count += 1
                 existing_set.add(current_transaction_tuple)
 
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, KeyError) as e:
             current_app.logger.warning(f"Hoppar över ogiltig rad i CSV: {row}. Fel: {e}")
             continue
 

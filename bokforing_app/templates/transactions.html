@@ -30,7 +30,7 @@
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-hover table-striped mb-0 datatable">
+                <table class="table table-hover table-striped mb-0">
                     <thead>
                         <tr>
                             <th scope="col" class="text-center" style="width: 50px;">
@@ -288,6 +288,102 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         }
     });
+
+    // --- Batch selection logic ---
+    const selectAllCheckbox = document.getElementById('select-all-checkbox');
+    const batchBookBtn = document.getElementById('batch-book-btn');
+    const selectedCountSpan = document.getElementById('selected-count');
+
+    function updateBatchButtonState() {
+        const transactionCheckboxes = document.querySelectorAll('.transaction-checkbox');
+        const selectedCheckboxes = document.querySelectorAll('.transaction-checkbox:checked');
+        const count = selectedCheckboxes.length;
+        
+        selectedCountSpan.textContent = count;
+        batchBookBtn.disabled = count === 0;
+
+        if (count === 0) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        } else if (count === transactionCheckboxes.length) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        }
+    }
+
+    selectAllCheckbox.addEventListener('change', function() {
+        const transactionCheckboxes = document.querySelectorAll('.transaction-checkbox');
+        transactionCheckboxes.forEach(checkbox => {
+            checkbox.checked = this.checked;
+        });
+        updateBatchButtonState();
+    });
+
+    tableBody.addEventListener('change', function(e) {
+        if (e.target.classList.contains('transaction-checkbox')) {
+            updateBatchButtonState();
+        }
+    });
+
+    batchBookBtn.addEventListener('click', async function() {
+        const selectedIds = Array.from(document.querySelectorAll('.transaction-checkbox:checked'))
+                                 .map(cb => cb.dataset.transId);
+
+        if (selectedIds.length === 0) {
+            showToast('Inga transaktioner markerade.', 'info');
+            return;
+        }
+
+        this.disabled = true;
+        this.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Bokför...`;
+
+        try {
+            const response = await fetch('/api/batch_book_with_ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transaction_ids: selectedIds })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Ett serverfel inträffade.');
+            }
+            
+            let message = '';
+            if (result.success_ids && result.success_ids.length > 0) {
+                message += `${result.success_ids.length} transaktioner bokfördes. `;
+                result.success_ids.forEach(id => {
+                    const row = document.getElementById(`trans-row-${id}`);
+                    if (row) row.remove();
+                });
+            }
+
+            if (result.errors && result.errors.length > 0) {
+                const errorDetails = result.errors.map(e => `ID ${e.id}: ${e.error}`).join(', ');
+                message += `${result.errors.length} misslyckades: ${errorDetails}`;
+                showToast(message, 'warning');
+            } else if (result.success_ids && result.success_ids.length > 0) {
+                showToast(message, 'success');
+            } else {
+                 showToast('Inga transaktioner kunde bokföras.', 'info');
+            }
+            
+        } catch (error) {
+            showToast(`Ett fel inträffade: ${error.message}`, 'danger');
+        } finally {
+            // Update state after potential removals
+            const remainingCheckboxes = document.querySelectorAll('.transaction-checkbox:checked').length;
+            this.innerHTML = `<i class="bi bi-check-circle me-1"></i>Bokför markerade (<span id="selected-count">${remainingCheckboxes}</span>)`;
+            updateBatchButtonState();
+        }
+    });
+    
+    // Initial state update in case of page reload with checked boxes
+    updateBatchButtonState();
 });
 </script>
 {% endblock %}
