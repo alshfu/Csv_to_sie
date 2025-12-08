@@ -4,18 +4,15 @@ from bokforing_app.models import Company, BankTransaction, Konto
 from bokforing_app import db
 
 
-def generate_sie_content(company_id):
+def generate_sie_from_bank_transactions(company_id, transactions):
+    """Genererar SIE-filinnehåll från en lista med BankTransaction-objekt."""
     company = Company.query.get_or_404(company_id)
-    transactions = BankTransaction.query.filter_by(
-        company_id=company_id,
-        status='processed'
-    ).order_by(BankTransaction.bokforingsdag).all()
 
     if not transactions:
-        return None, "Inga bokförda transaktioner att exportera."
+        return None, "Inga verifikationer att exportera."
 
-    all_dates = [t.bokforingsdag for t in transactions]
-    min_date = min(all_dates)
+    all_dates = [v.bokforingsdag for v in transactions]
+    min_date = min(all_dates) if all_dates else datetime.now()
     
     financial_year_start = datetime(min_date.year, 1, 1)
     financial_year_end = datetime(min_date.year, 12, 31)
@@ -28,7 +25,6 @@ def generate_sie_content(company_id):
     konto_descriptions = {k.konto_nr: k.beskrivning for k in Konto.query.filter(Konto.konto_nr.in_(used_konto_nrs)).all()}
 
     sie_lines = []
-
     sie_lines.append('#FLAGGA 0')
     sie_lines.append(f'#PROGRAM "Csv-to-Sie App" 1.0')
     sie_lines.append('#FORMAT PC8')
@@ -46,13 +42,12 @@ def generate_sie_content(company_id):
         konto_namn = konto_descriptions.get(konto_nr, f"Okänt konto {konto_nr}")
         sie_lines.append(f'#KONTO {konto_nr} "{konto_namn}"')
 
-    ver_nr_counter = 1
     for trans in transactions:
         ver_date = trans.bokforingsdag.strftime('%Y%m%d')
-        ver_text = trans.referens.replace('"', "'").strip() if trans.referens else f"Transaktion {trans.id}"
-        if not ver_text: ver_text = f"Transaktion {trans.id}"
+        ver_text = trans.referens.replace('"', "'").strip() if trans.referens else f"Verifikation {trans.id}"
+        if not ver_text: ver_text = f"Verifikation {trans.id}"
 
-        sie_lines.append(f'#VER "A" {ver_nr_counter} {ver_date} "{ver_text}" {{')
+        sie_lines.append(f'#VER "A" {trans.id} {ver_date} "{ver_text}" {{')
         
         for entry in trans.entries:
             belopp = entry.debet if entry.debet > 0 else -entry.kredit
@@ -61,7 +56,6 @@ def generate_sie_content(company_id):
             sie_lines.append(f'#TRANS {entry.konto} {{}} {formatted_belopp} "{trans_text}"')
         
         sie_lines.append('}')
-        ver_nr_counter += 1
 
     sie_content_str = "\n".join(sie_lines)
     

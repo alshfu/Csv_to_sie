@@ -657,10 +657,29 @@ def batch_book_with_ai():
             errors.append({'id': trans_id, 'error': str(e)})
     return jsonify({'success_ids': success_ids, 'errors': errors}), 200
 
+@bp.route('/company/<int:company_id>/sie_export', methods=['GET'])
+def export_sie_file(company_id):
+    """Genererar och returnerar en SIE-fil för alla verifikationer för ett företag."""
+    verifikationer = BankTransaction.query.filter_by(company_id=company_id, status='processed').order_by(BankTransaction.bokforingsdag).all()
+    
+    content, error = sie_service.generate_sie_from_bank_transactions(company_id, verifikationer)
+    
+    if error:
+        flash(error, "danger")
+        # Antag att vi vill omdirigera till verifikationslistan vid fel
+        return redirect(url_for('main.verifikationer_page', company_id=company_id))
+
+    filename = f"SIE_{company_id}_{datetime.datetime.now().strftime('%Y%m%d')}.si"
+    response = make_response(content)
+    response.charset = 'cp437'
+    response.mimetype = 'text/plain'
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    return response
+
 @bp.route('/company/<int:company_id>/generate_sie', methods=['POST'])
 def generate_sie(company_id):
     """Genererar och returnerar en SIE-fil för nedladdning."""
-    content, error = sie_service.generate_sie_content(company_id)
+    content, error = sie_service.generate_sie_from_transactions(company_id)
     if error:
         flash(error, "danger")
         return redirect(url_for('main.bokforing_page', company_id=company_id))
