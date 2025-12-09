@@ -496,11 +496,11 @@ def api_generate_sie():
 
         current_year = datetime.now().year
 
-        # Hämta alla bokförda transaktioner (verifikationer)
+        # Hämta alla bokförda transaktioner, sorterade efter datum och sedan ID för konsekvens
         processed_transactions = BankTransaction.query.filter_by(
             company_id=company_id,
             status='processed'
-        ).order_by(BankTransaction.bokforingsdag).all()
+        ).order_by(BankTransaction.bokforingsdag, BankTransaction.id).all()
 
         # Steg 1: Samla alla unika kontonummer från verifikationerna
         used_account_nrs = set()
@@ -513,8 +513,9 @@ def api_generate_sie():
         db_accounts = Konto.query.filter(Konto.konto_nr.in_(list(used_account_nrs))).all()
         accounts_dict = {int(acc.konto_nr): {"name": acc.beskrivning} for acc in db_accounts}
 
-        # Steg 3: Bygg verifikationslistan och hantera eventuella konton som saknas i DB
+        # Steg 3: Bygg verifikationslistan med sekventiell numrering
         verifications = []
+        ver_number_counter = 1
         for trans in processed_transactions:
             ver_transactions = []
             for entry in trans.entries:
@@ -541,11 +542,12 @@ def api_generate_sie():
         
             verifications.append({
                 "series": "A",
-                "number": str(trans.id),
+                "number": str(ver_number_counter),
                 "date": trans.bokforingsdag.strftime('%Y%m%d'),
                 "text": trans.referens or "",
                 "transactions": ver_transactions
             })
+            ver_number_counter += 1
 
         company_data = {
             "company_name": company.name,
