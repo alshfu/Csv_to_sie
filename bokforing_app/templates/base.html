@@ -23,6 +23,18 @@
 </head>
 <body>
 
+<!-- Toast Container -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+  <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="toast-header">
+      <strong class="me-auto" id="toast-title"></strong>
+      <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+    <div class="toast-body" id="toast-body">
+    </div>
+  </div>
+</div>
+
 <!-- Alert Container -->
 <div id="alert-container" class="position-fixed top-0 end-0 p-3" style="z-index: 1050;"></div>
 
@@ -137,6 +149,32 @@
 
 <script defer>
 document.addEventListener('DOMContentLoaded', function() {
+    // --- Toast Function ---
+    const toastLiveExample = document.getElementById('liveToast');
+    const toastTitle = document.getElementById('toast-title');
+    const toastBody = document.getElementById('toast-body');
+    const toast = new bootstrap.Toast(toastLiveExample);
+
+    window.showToast = function(message, type = 'info') {
+        let title = 'Information';
+        let headerClass = 'text-dark';
+        if (type === 'success') {
+            title = 'Lyckades!';
+            headerClass = 'bg-success text-white';
+        } else if (type === 'danger') {
+            title = 'Fel';
+            headerClass = 'bg-danger text-white';
+        } else if (type === 'warning') {
+            title = 'Varning';
+            headerClass = 'bg-warning text-dark';
+        }
+        
+        toastLiveExample.querySelector('.toast-header').className = `toast-header ${headerClass}`;
+        toastTitle.textContent = title;
+        toastBody.textContent = message;
+        toast.show();
+    }
+
     // Flash messages as alerts
     {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}

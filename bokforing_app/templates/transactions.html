@@ -30,21 +30,24 @@
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">
-                <table class="table table-hover table-striped mb-0">
+                <table class="table table-hover table-striped mb-0 sortable-table">
                     <thead>
                         <tr>
                             <th scope="col" class="text-center" style="width: 50px;">
                                 <input type="checkbox" id="select-all-checkbox" class="form-check-input"></th>
-                            <th scope="col">Datum</th>
-                            <th scope="col">Referens</th>
-                            <th scope="col" class="text-end">Belopp</th>
+                            <th scope="col" class="sortable" data-sort="date">Datum <i class="bi bi-arrow-up-down ms-1"></i></th>
+                            <th scope="col" class="sortable" data-sort="reference">Referens <i class="bi bi-arrow-up-down ms-1"></i></th>
+                            <th scope="col" class="text-end sortable" data-sort="amount">Belopp <i class="bi bi-arrow-up-down ms-1"></i></th>
                             <th scope="col">Status</th>
                             <th scope="col" class="text-end">Åtgärd</th>
                         </tr>
                     </thead>
                     <tbody id="transactions-table-body">
                         {% for trans in transactions %}
-                            <tr id="trans-row-{{ trans.id }}" class="transaction-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;">
+                            <tr id="trans-row-{{ trans.id }}" class="transaction-row" data-trans-id="{{ trans.id }}" style="cursor: pointer;"
+                                data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}"
+                                data-reference="{{ trans.referens }}"
+                                data-amount="{{ trans.belopp }}">
                                 <td class="text-center"><input type="checkbox" class="form-check-input transaction-checkbox" data-trans-id="{{ trans.id }}"></td>
                                 <td class="fw-medium">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
                                 <td>{{ trans.referens }}</td>
@@ -67,8 +70,11 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/tableSorter.js') }}"></script>
 <script defer>
 document.addEventListener('DOMContentLoaded', async function() {
+    new TableSorter('sortable-table'); // Initialize table sorter
+
     const companyId = {{ company.id }};
     const kontoplan = {{ kontoplan|tojson }};
     const genericEntryModal = new bootstrap.Modal(document.getElementById('genericEntryModal'));

@@ -12,80 +12,73 @@
                         Verifikationer: {{ company.name }}
                     </h2>
                     <div class="btn-group">
-                        <button id="new-ver-btn" class="btn btn-primary btn-lg">
+                        <button id="new-ver-btn" class="btn btn-primary">
                             <i class="bi bi-plus-circle me-1"></i>
                             Skapa ny verifikation
                         </button>
-                        <a href="{{ url_for('api.export_sie_file', company_id=company.id) }}" class="btn btn-secondary btn-lg">
-                            <i class="bi bi-download me-1"></i>
-                            Ladda ner SIE
-                        </a>
+                        <button id="generate-sie-btn" class="btn btn-info">
+                            <i class="bi bi-file-earmark-spreadsheet me-1"></i>
+                            Generera SIE-fil
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Verifications Table Section -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card shadow-sm border-0">
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover table-striped mb-0 align-middle sortable-table">
-                                <thead class="table-dark">
-                                <tr>
-                                    <th scope="col" class="sortable" data-sort="id" style="width: 60px;">
-                                        <span>Ver. ID</span>
-                                        <i class="bi bi-arrow-up-down ms-1"></i>
-                                    </th>
-                                    <th scope="col" class="sortable" data-sort="date" style="width: 10ch;">
-                                        <span>Datum</span>
-                                        <i class="bi bi-arrow-up-down ms-1"></i>
-                                    </th>
-                                    <th scope="col" class="text-center" style="width: 200px;">Konton</th>
-                                    <th scope="col" class="text-end sortable" data-sort="amount" style="width: 120px;">
-                                        <span>Belopp</span>
-                  <i class="bi bi-arrow-up-down ms-1"></i>
-                                    </th>
-                                    <th scope="col" class="sortable" data-sort="ref" style="width: 200px;">
-                                        <span>Referens</span>
-                                        <i class="bi bi-arrow-up-down ms-1"></i>
-                                    </th>
-                                </tr>
-                                </thead>
-                                <tbody id="verifikationer-table-body">
-                                {% for trans in transactions %}
-                                    <tr id="ver-row-{{ trans.id }}" class="ver-row" data-trans-id="{{ trans.id }}"
-                                        style="cursor: pointer;" data-id="{{ trans.id }}"
-                                        data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}"
-                                        data-ref="{{ trans.referens }}" data-amount="{{ trans.belopp }}">
-                                        <td class="fw-medium">{{ trans.id }}</td>
-                                        <td class="fw-medium">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
-                                        <td class="text-center">
-                                            {% for entry in trans.entries %}
-                                                <span class="badge bg-secondary text-white me-1 mb-1"
-                                                      style="font-size: 0.75em;"
-                                                      title="{{ entry.konto }} - {{ kontoplan.get(entry.konto, 'Okänt') }}">
-                                                        {{ entry.konto }} - {{ kontoplan.get(entry.konto, entry.konto)|truncate(15, true, '') }}
-                                                    </span>
-                                            {% endfor %}
-                                        </td>
-                                        <td class="text-end fw-bold {% if trans.belopp < 0 %}text-danger{% else %}text-success{% endif %}">{{ "%.2f"|format(trans.belopp) }}
-                                            kr
-                                        </td>
-                                        <td>{{ trans.referens }}</td>
-                                    </tr>
-                                {% else %}
-                                    <tr>
-                                        <td colspan="5" class="text-center py-4 text-muted">Inga verifikationer
-                                            hittades.
-                                        </td>
-                                    </tr>
-                                {% endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="bi bi-list-ul me-2"></i>Bokförda verifikationer</h4>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-striped mb-0 sortable-table">
+                        <thead>
+                        <tr>
+                            <th scope="col" class="sortable" data-sort="id">Ver. ID <i class="bi bi-arrow-up-down ms-1"></i></th>
+                            <th scope="col" class="sortable" data-sort="date">Datum <i class="bi bi-arrow-up-down ms-1"></i></th>
+                            <th scope="col" class="sortable" data-sort="reference">Referens <i class="bi bi-arrow-up-down ms-1"></i></th>
+                            <th scope="col" class="text-center">Konton</th>
+                            <th scope="col" class="text-end sortable" data-sort="amount">Belopp <i class="bi bi-arrow-up-down ms-1"></i></th>
+                            <th scope="col" class="text-end">Åtgärd</th>
+                        </tr>
+                        </thead>
+                        <tbody id="verifikationer-table-body">
+                        {% for trans in transactions %}
+                            <tr id="ver-row-{{ trans.id }}" class="ver-row" data-trans-id="{{ trans.id }}"
+                                style="cursor: pointer;"
+                                data-id="{{ trans.id }}"
+                                data-date="{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}"
+                                data-reference="{{ trans.referens }}"
+                                data-amount="{{ trans.belopp }}">
+                                <td class="fw-medium">{{ trans.id }}</td>
+                                <td class="fw-medium">{{ trans.bokforingsdag.strftime('%Y-%m-%d') }}</td>
+                                <td>{{ trans.referens }}</td>
+                                <td class="text-center">
+                                    {% for entry in trans.entries %}
+                                        <span class="badge bg-secondary text-white me-1 mb-1"
+                                              style="font-size: 0.75em;"
+                                              title="{{ entry.konto }} - {{ kontoplan.get(entry.konto, 'Okänt') }}">
+                                            {{ entry.konto }}
+                                        </span>
+                                    {% endfor %}
+                                </td>
+                                <td class="text-end fw-bold {% if trans.belopp < 0 %}text-danger{% else %}text-success{% endif %}">
+                                    {{ "%.2f"|format(trans.belopp) }} kr
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-outline-primary btn-sm edit-ver-btn" data-trans-id="{{ trans.id }}" title="Redigera verifikation">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="text-center py-4 text-muted">Inga verifikationer hittades.</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -95,11 +88,15 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ url_for('static', filename='js/tableSorter.js') }}"></script>
     <script src="{{ url_for('static', filename='js/genericEntryModal.js') }}"></script>
-    <script>
+    <script defer>
         document.addEventListener('DOMContentLoaded', function () {
+            new TableSorter('sortable-table'); // Initialize table sorter
+
+            const companyId = {{ company.id }};
             const config = {
-                companyId: {{ company.id }},
+                companyId: companyId,
                 kontoplan: {{ kontoplan|tojson }},
                 fetchUrls: {
                     get: '/api/verifikation/{id}',
@@ -111,21 +108,54 @@
 
             const modalManager = new GenericEntryModal(config);
 
-            // Öppna modal för ny verifikation
             document.getElementById('new-ver-btn').addEventListener('click', () => {
                 modalManager.openModal(null, 'verifikation');
             });
 
-            // Öppna modal för att redigera befintlig verifikation
             document.getElementById('verifikationer-table-body').addEventListener('click', function (e) {
                 const row = e.target.closest('.ver-row');
-                if (row) {
+                const editButton = e.target.closest('.edit-ver-btn');
+                
+                if (editButton) {
+                    e.stopPropagation(); // Förhindra att radklicket också körs
+                    const transId = editButton.dataset.transId;
+                    modalManager.openModal(transId, 'verifikation');
+                } else if (row) {
                     const transId = row.dataset.transId;
                     modalManager.openModal(transId, 'verifikation');
                 }
             });
 
-            // --- Table Sorting Logic (omitted for brevity, can be a separate utility) ---
+            // --- SIE Generation Logic ---
+            const generateSieBtn = document.getElementById('generate-sie-btn');
+            generateSieBtn.addEventListener('click', async function() {
+                this.disabled = true;
+                this.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span>Genererar...`;
+
+                try {
+                    const response = await fetch('/api/generate_sie', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ company_id: companyId })
+                    });
+
+                    const result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.error || 'Ett serverfel inträffade.');
+                    }
+
+                    showToast('SIE-filen har skapats! Ladda ner den nu.', 'success');
+                    // Offer download
+                    window.location.href = `/api/download_sie/${result.filename}`;
+
+                } catch (error) {
+                    showToast(`Kunde inte generera SIE-fil: ${error.message}`, 'danger');
+                } finally {
+                    this.disabled = false;
+                    this.innerHTML = `<i class="bi bi-file-earmark-spreadsheet me-1"></i>Generera SIE-fil`;
+                }
+            });
         });
     </script>
 {% endblock %}

@@ -1,66 +1,160 @@
 import codecs
 from datetime import datetime
-from bokforing_app.models import Company, BankTransaction, Konto
-from bokforing_app import db
 
+def _sanitize_for_cp437(text):
+    """
+    Sanitizes a string to be compatible with CP437 encoding.
+    Replaces characters that cannot be encoded with '?'.
+    """
+    if not isinstance(text, str):
+        text = str(text) # Ensure it's a string first
 
-def generate_sie_from_bank_transactions(company_id, transactions):
-    """Genererar SIE-filinnehåll från en lista med BankTransaction-objekt."""
-    company = Company.query.get_or_404(company_id)
+    # Attempt to encode and decode to replace unsupported characters
+    # with '?' (or similar replacement character defined by the codec)
+    # The 'replace' error handler is key here.
+    return text.encode('cp437', errors='replace').decode('cp437')
 
-    if not transactions:
-        return None, "Inga verifikationer att exportera."
-
-    all_dates = [v.bokforingsdag for v in transactions]
-    min_date = min(all_dates) if all_dates else datetime.now()
-    
-    financial_year_start = datetime(min_date.year, 1, 1)
-    financial_year_end = datetime(min_date.year, 12, 31)
-
-    used_konto_nrs = set()
-    for trans in transactions:
-        for entry in trans.entries:
-            used_konto_nrs.add(entry.konto)
-
-    konto_descriptions = {k.konto_nr: k.beskrivning for k in Konto.query.filter(Konto.konto_nr.in_(used_konto_nrs)).all()}
-
-    sie_lines = []
-    sie_lines.append('#FLAGGA 0')
-    sie_lines.append(f'#PROGRAM "Csv-to-Sie App" 1.0')
-    sie_lines.append('#FORMAT PC8')
-    sie_lines.append(f'#GEN {datetime.now().strftime("%Y%m%d")} "CsvToSie"')
-    sie_lines.append('#SIETYP 4')
-    sie_lines.append(f'#FNAMN "{company.name}"')
-    sie_lines.append(f'#ORGNR {company.org_nummer}')
-    address_line = f'#ADRESS "{company.gata}" "" "{company.postkod} {company.ort}" ""'
-    sie_lines.append(address_line)
-    sie_lines.append(f'#RAR 0 {financial_year_start.strftime("%Y%m%d")} {financial_year_end.strftime("%Y%m%d")}')
-    sie_lines.append('#VALUTA SEK')
-    sie_lines.append('#KPTYP BAS95')
-
-    for konto_nr in sorted(list(used_konto_nrs)):
-        konto_namn = konto_descriptions.get(konto_nr, f"Okänt konto {konto_nr}")
-        sie_lines.append(f'#KONTO {konto_nr} "{konto_namn}"')
-
-    for trans in transactions:
-        ver_date = trans.bokforingsdag.strftime('%Y%m%d')
-        ver_text = trans.referens.replace('"', "'").strip() if trans.referens else f"Verifikation {trans.id}"
-        if not ver_text: ver_text = f"Verifikation {trans.id}"
-
-        sie_lines.append(f'#VER "A" {trans.id} {ver_date} "{ver_text}" {{')
-        
-        for entry in trans.entries:
-            belopp = entry.debet if entry.debet > 0 else -entry.kredit
-            formatted_belopp = f"{belopp:.2f}".replace(',', '.')
-            trans_text = ver_text
-            sie_lines.append(f'#TRANS {entry.konto} {{}} {formatted_belopp} "{trans_text}"')
-        
-        sie_lines.append('}')
-
-    sie_content_str = "\n".join(sie_lines)
-    
+def validate_and_write(filename, lines):
+    """
+    Writes a list of lines to a file with CP437 encoding.
+    Raises a ValueError if an encoding error occurs.
+    """
     try:
-        encoded_content = codecs.encode(sie_content_str, 'cp437')
-        return encoded_content, None
+        with codecs.open(filename, 'w', encoding='cp437') as f:
+            for line in lines:
+                f.write(line + '\n')
     except UnicodeEncodeError as e:
-        return None, f"Fel vid kodning av SIE-fil (ogiltigt tecken): {e}. Kontrollera referenstexter för ovanliga tecken."
+        raise ValueError(f"Encoding error for Swedish characters: {e}. Ensure input is CP437-compatible.")
+
+def generate_sie_file(filename, company_data, verifications):
+    """
+    Generates a SIE 4B file based on the provided data.
+
+    Args:
+        filename (str): The name of the SIE file to generate (e.g., 'output.si').
+        company_data (dict): A dictionary with company information.
+        verifications (list): A list of verification dictionaries.
+
+    Raises:
+        ValueError: If a verification is unbalanced or input is invalid.
+    """
+    # Step 1: Validate inputs
+    for ver in verifications:
+        total = sum(trans['amount'] for trans in ver['transactions'])
+        if abs(total) > 1e-6:
+            raise ValueError(f"Verification {ver.get('series', '')}{ver.get('number', '')} is unbalanced: sum = {total}")
+
+        # Validate that all transaction accounts exist in the account plan
+        for trans in ver['transactions']:
+            if trans['account'] not in company_data.get('accounts', {}):
+                raise ValueError(f"Account {trans['account']} in verification {ver.get('number', '')} not found in account plan.")
+
+    # Step 2: Build lines for the SIE file
+    lines = [
+        '#FLAGGA 0',
+        f'#PROGRAM "BLM SIE Generator" 1.0',
+        '#FORMAT PC8',
+        f'#GEN {datetime.now().strftime("%Y%m%d")}',
+        f'#SIETYP 4',
+        f'#FNAMN "{_sanitize_for_cp437(company_data["company_name"])}"',
+        f'#ORGNR {_sanitize_for_cp437(company_data["org_number"])}',
+        f'#RAR 0 {company_data["fiscal_year_start"]} {company_data["fiscal_year_end"]}',
+        f'#KPTYP {_sanitize_for_cp437(company_data.get("account_plan_type", "BAS95"))}',
+    ]
+
+    # Add accounts
+    for acc_num, acc_details in sorted(company_data.get('accounts', {}).items()):
+        lines.append(f'#KONTO {acc_num} "{_sanitize_for_cp437(acc_details["name"])}"')
+        if "type" in acc_details:
+            lines.append(f'#KTYP {acc_num} {_sanitize_for_cp437(acc_details["type"])}')
+
+
+    # Add verifications
+    for ver in verifications:
+        ver_parts = [
+            f'#VER',
+            f'"{_sanitize_for_cp437(ver["series"])}"',
+            f'"{_sanitize_for_cp437(ver["number"])}"',
+            ver["date"]
+        ]
+        ver_text = ver.get("text", "")
+        if ver_text:
+            ver_parts.append(f'"{_sanitize_for_cp437(ver_text)}"')
+        
+        lines.append(" ".join(ver_parts))
+        lines.append('{')
+        for trans in ver['transactions']:
+            trans_parts = [
+                f'#TRANS',
+                str(trans["account"])
+            ]
+
+            # Format objects string if present and not empty
+            obj_str = ''
+            if trans.get('objects'):
+                obj_items = " ".join([f'{k} "{_sanitize_for_cp437(v)}"' for k,v in trans["objects"].items()])
+                if obj_items: # Only add if there are actual objects
+                    obj_str = f' {{{obj_items}}}'
+            if obj_str:
+                trans_parts.append(obj_str)
+
+            # Format amount to two decimal places
+            amount_str = f'{trans["amount"]:.2f}'
+            trans_parts.append(amount_str)
+            
+            trans_text = trans.get("trans_text", "")
+            if trans_text:
+                trans_parts.append(f'"{_sanitize_for_cp437(trans_text)}"')
+            
+            lines.append(" ".join(trans_parts))
+        lines.append('}')
+    
+    # Step 3: Write the lines to the file with correct encoding
+    validate_and_write(filename, lines)
+
+    print(f"SIE file '{filename}' generated successfully.")
+
+# Example Usage (can be removed or adapted)
+if __name__ == '__main__':
+    # Sample data based on the technical description
+    company = {
+        "company_name": "Åkers Företag AB – Test",
+        "org_number": "556123-4567",
+        "fiscal_year_start": "20250101",
+        "fiscal_year_end": "20251231",
+        "currency": "SEK",
+        "account_plan_type": "BAS95",
+        "accounts": {
+            1910: {"name": "Kassa", "type": "T"},
+            2440: {"name": "Leverantörsskulder", "type": "S"},
+            4010: {"name": "Köpta varor och tjänster", "type": "K"},
+        }
+    }
+
+    verifications_data = [
+        {
+            "series": "A",
+            "number": "1",
+            "date": "20251201",
+            "text": "Faktura från leverantör Örebro AB – Test",
+            "transactions": [
+                {"account": 4010, "amount": 1000.00, "trans_text": "Inköp material – Test"},
+                {"account": 2440, "amount": -1000.00, "trans_text": "Skuld till lev"},
+            ]
+        },
+        {
+            "series": "A",
+            "number": "2",
+            "date": "20251205",
+            "text": "", # Empty text
+            "transactions": [
+                {"account": 2440, "amount": 1000.00, "trans_text": ""}, # Empty trans_text
+                {"account": 1910, "amount": -1000.00}, # Missing trans_text
+            ]
+        }
+    ]
+
+    try:
+        generate_sie_file("test_output.si", company, verifications_data)
+    except ValueError as e:
+        print(f"Error: {e}")

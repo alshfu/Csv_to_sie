@@ -434,35 +434,27 @@ def update_verifikation(trans_id):
     trans = BankTransaction.query.get_or_404(trans_id)
     data = request.json
     try:
+        current_app.logger.info(f"Updating transaction {trans_id} with data: {data}")
+
         if not data.get('bokforingsdag') or not data.get('referens'):
             raise ValueError("Datum och referens är obligatoriska.")
+        
         total_debet = sum(float(e.get('debet', 0)) for e in data['entries'])
         total_kredit = sum(float(e.get('kredit', 0)) for e in data['entries'])
         if abs(total_debet - total_kredit) > 0.01:
             raise ValueError("Obalans! Debet och kredit summerar inte till samma värde.")
         
+        # Update main transaction details
         trans.bokforingsdag = datetime.datetime.strptime(data['bokforingsdag'], '%Y-%m-%d').date()
         trans.referens = data['referens']
+        trans.belopp = total_debet  # Update the total amount
         trans.status = 'processed'
         
-        # Hantera bilagor
-        omvand_skattskyldighet = data.get('omvand_skattskyldighet', False)
-        trans.attachments.clear()
-        for att_id in data.get('attachment_ids', []):
-            attachment = Bilaga.query.get(att_id)
-            if attachment:
-                trans.attachments.append(attachment)
-                attachment.status = 'assigned'
-                attachment.omvand_skattskyldighet = omvand_skattskyldighet
+        # Clear old entries using a robust method
+        trans.entries.clear()
+        db.session.flush() # Ensure the clear is processed before adding new ones
 
-        # Hantera fakturor
-        trans.invoices.clear()
-        for inv_id in data.get('invoice_ids', []):
-            invoice = Invoice.query.get(inv_id)
-            if invoice: trans.invoices.append(invoice)
-
-        # Uppdatera bokföringsposter
-        BookkeepingEntry.query.filter_by(bank_transaction_id=trans_id).delete()
+        # Add new entries
         for entry_data in data['entries']:
             new_entry = BookkeepingEntry(
                 bank_transaction_id=trans_id,
@@ -473,9 +465,11 @@ def update_verifikation(trans_id):
             db.session.add(new_entry)
             
         db.session.commit()
+        current_app.logger.info(f"Successfully updated transaction {trans_id}.")
         return jsonify({'message': 'Verifikation uppdaterad!', 'id': trans.id}), 200
     except Exception as e:
         db.session.rollback()
+        current_app.logger.error(f"Error updating transaction {trans_id}: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 @bp.route('/verifikation/<int:trans_id>', methods=['DELETE'])

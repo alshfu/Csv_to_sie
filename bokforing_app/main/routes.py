@@ -5,19 +5,21 @@ Definierar huvud-routes för applikationen som renderar HTML-sidor.
 Denna modul hanterar all logik för att visa de olika sidorna i webbgränssnittet,
 som att hämta data från databasen och skicka den till Jinja2-mallarna för rendering.
 """
-from flask import render_template, request, flash, redirect, url_for, Response, current_app, jsonify
+import os
+import time
+from flask import render_template, request, flash, redirect, url_for, Response, current_app, jsonify, send_from_directory
 from bokforing_app.main import bp
 from bokforing_app.models import Company, BankTransaction, BookkeepingEntry, Invoice, InvoiceRow, Client, Bilaga, \
-    Matchning
+    Matchning, Konto
 from bokforing_app import db
 from bokforing_app.services.accounting_config import KONTOPLAN, ASSOCIATION_MAP
 import bokforing_app.services.booking_service as booking_service
 import bokforing_app.services.fakturanu_service as fakturanu_service
+from bokforing_app.services.sie_service import generate_sie_file
 from datetime import datetime, timedelta
 from sqlalchemy import extract, func, and_
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
-import time
 
 
 @bp.route('/', methods=['GET', 'POST'])
@@ -369,7 +371,7 @@ def momsrapport_page(company_id):
 
     moms_data = {}
     total_utgaende = 0
-    total_ingende = 0
+    total_ingende = .0
 
     moms_konton = {
         '2611': 'Utgående moms (25%)', '2612': 'Utgående moms (12%)', '2613': 'Utgående moms (6%)',
@@ -471,3 +473,107 @@ def export_moms_xml(company_id):
 def ai_settings_page():
     """Visar sidan för AI-inställningar."""
     return render_template('ai_settings.html', kontoplan=KONTOPLAN)
+
+
+@bp.route('/api/generate_sie', methods=['POST'])
+def api_generate_sie():
+    """
+    Genererar en SIE-fil baserat på bokförda transaktioner.
+    Hämtar endast de konton som används i verifikationerna från databasen.
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No JSON data in request body.'}), 400
+
+        company_id = data.get('company_id')
+        if not company_id:
+            return jsonify({'error': 'Company ID saknas'}), 400
+
+        company = Company.query.get(company_id)
+        if not company:
+            return jsonify({'error': f'Company with ID {company_id} not found.'}), 404
+
+        current_year = datetime.now().year
+
+        # Hämta alla bokförda transaktioner (verifikationer)
+        processed_transactions = BankTransaction.query.filter_by(
+            company_id=company_id,
+            status='processed'
+        ).order_by(BankTransaction.bokforingsdag).all()
+
+        # Steg 1: Samla alla unika kontonummer från verifikationerna
+        used_account_nrs = set()
+        for trans in processed_transactions:
+            for entry in trans.entries:
+                if entry.konto and entry.konto.isdigit():
+                    used_account_nrs.add(entry.konto)
+
+        # Steg 2: Hämta endast de använda kontona från databasen
+        db_accounts = Konto.query.filter(Konto.konto_nr.in_(list(used_account_nrs))).all()
+        accounts_dict = {int(acc.konto_nr): {"name": acc.beskrivning} for acc in db_accounts}
+
+        # Steg 3: Bygg verifikationslistan och hantera eventuella konton som saknas i DB
+        verifications = []
+        for trans in processed_transactions:
+            ver_transactions = []
+            for entry in trans.entries:
+                try:
+                    account_num = int(entry.konto)
+                    
+                    # Hämta kontonamn, med en fallback om det mot förmodan skulle saknas
+                    account_name = accounts_dict.get(account_num, {}).get("name", f"Okänt konto {account_num}")
+                    
+                    # Om kontot inte fanns i vår dict, lägg till det dynamiskt
+                    if account_num not in accounts_dict:
+                        accounts_dict[account_num] = {"name": account_name}
+                        current_app.logger.warning(f"Konto {account_num} fanns i en verifikation men inte i Konto-tabellen. Lades till dynamiskt.")
+
+                    amount = entry.debet - entry.kredit
+                    ver_transactions.append({
+                        "account": account_num,
+                        "amount": amount,
+                        "trans_text": account_name
+                    })
+                except (ValueError, TypeError):
+                    current_app.logger.error(f"Ogiltigt kontonummer '{entry.konto}' i transaktion {trans.id}. Posten ignoreras.")
+                    continue
+        
+            verifications.append({
+                "series": "A",
+                "number": str(trans.id),
+                "date": trans.bokforingsdag.strftime('%Y%m%d'),
+                "text": trans.referens or "",
+                "transactions": ver_transactions
+            })
+
+        company_data = {
+            "company_name": company.name,
+            "org_number": company.org_nummer,
+            "fiscal_year_start": f"{current_year}0101",
+            "fiscal_year_end": f"{current_year}1231",
+            "accounts": accounts_dict # Nu innehåller denna bara använda konton
+        }
+
+        # Skapa en undermapp för SIE-filer om den inte finns
+        sie_dir = os.path.join(current_app.instance_path, 'sie_files')
+        os.makedirs(sie_dir, exist_ok=True)
+
+        # Generera ett unikt filnamn
+        filename = f"SIE_{company.org_nummer}_{int(time.time())}.si"
+        filepath = os.path.join(sie_dir, filename)
+
+        generate_sie_file(filepath, company_data, verifications)
+        
+        return jsonify({'success': True, 'filename': filename})
+
+    except Exception as e:
+        current_app.logger.error(f"Oväntat fel vid SIE-generering: {e}", exc_info=True)
+        return jsonify({'error': 'Ett oväntat serverfel inträffade.'}), 500
+
+
+@bp.route('/api/download_sie/<path:filename>')
+def download_sie_file(filename):
+    """Tillhandahåller en genererad SIE-fil för nedladdning."""
+    sie_dir = os.path.join(current_app.instance_path, 'sie_files')
+    return send_from_directory(sie_dir, filename, as_attachment=True)

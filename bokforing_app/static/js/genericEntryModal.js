@@ -13,6 +13,8 @@ class GenericEntryModal {
         this.modalEntryType = document.getElementById('modal-entry-type');
         this.modalLabel = document.getElementById('genericEntryModalLabel');
         this.deleteBtn = document.getElementById('delete-entry-btn-modal');
+        this.saveBtn = document.getElementById('save-entry-btn');
+        this.saveBtnSpinner = this.saveBtn.querySelector('.spinner-border');
         
         // Optional elements - these might not exist on every page
         this.omvandCheckbox = document.getElementById('modal-omvand-skattskyldighet');
@@ -214,11 +216,93 @@ class GenericEntryModal {
     }
 
     async handleDelete() {
-        // ... (samma som förut)
+        const entryId = this.modalEntryId.value;
+        if (!entryId) {
+            showToast('Kan inte radera en verifikation som inte sparats.', 'warning');
+            return;
+        }
+
+        if (!confirm(`Är du säker på att du vill radera verifikation ${entryId}?`)) {
+            return;
+        }
+
+        try {
+            const url = this.fetchUrls.delete.replace('{id}', entryId);
+            const response = await fetch(url, { method: 'DELETE' });
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Ett fel inträffade vid radering.');
+            }
+
+            this.modal.hide();
+            showToast('Verifikationen har raderats!', 'success');
+            setTimeout(() => location.reload(), 1500); // Reload to update the list
+        } catch (error) {
+            showToast(`Kunde inte radera verifikationen: ${error.message}`, 'danger');
+        }
     }
 
     async handleSubmit(e) {
-        // ... (samma som förut, men byt ut alert mot showToast)
+        e.preventDefault();
+        
+        this.saveBtn.disabled = true;
+        this.saveBtnSpinner.classList.remove('d-none');
+
+        const entryId = this.modalEntryId.value;
+        const url = entryId ? this.fetchUrls.put.replace('{id}', entryId) : this.fetchUrls.post;
+        const method = entryId ? 'PUT' : 'POST';
+
+        const data = {
+            bokforingsdag: document.getElementById('modal-bokforingsdag').value,
+            referens: document.getElementById('modal-referens').value,
+            invoice_ids: document.getElementById('modal-invoice-ids')?.value.split(',').filter(id => id) || [],
+            attachment_ids: document.getElementById('modal-attachment-ids')?.value.split(',').filter(id => id) || [],
+            entries: []
+        };
+
+        this.entriesContainer.querySelectorAll('.entry-row').forEach(row => {
+            const konto = row.querySelector('.konto-select').value;
+            const debet = parseFloat(row.querySelector('.debet-input').value) || 0;
+            const kredit = parseFloat(row.querySelector('.kredit-input').value) || 0;
+            if (konto && (debet > 0 || kredit > 0)) {
+                data.entries.push({ konto, debet, kredit });
+            }
+        });
+
+        // Balance check (assuming 'balance' element exists in the modal)
+        const balanceElement = document.getElementById('balance');
+        if (balanceElement && Math.abs(parseFloat(balanceElement.textContent)) > 0.01) {
+            showToast('Fel: Debet och Kredit måste vara i balans.', 'danger');
+            this.saveBtn.disabled = false;
+            this.saveBtnSpinner.classList.add('d-none');
+            return;
+        }
+        if (data.entries.length < 2) {
+            showToast('Fel: Du måste ha minst två bokföringsposter.', 'danger');
+            this.saveBtn.disabled = false;
+            this.saveBtnSpinner.classList.add('d-none');
+            return;
+        }
+
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error || 'Ett fel inträffade.');
+
+            this.modal.hide();
+            showToast('Verifikationen har sparats!', 'success');
+            setTimeout(() => location.reload(), 1500); // Reload to update the list
+        } catch (error) {
+            showToast(`Kunde inte spara verifikationen: ${error.message}`, 'danger');
+        } finally {
+            this.saveBtn.disabled = false;
+            this.saveBtnSpinner.classList.add('d-none');
+        }
     }
     
     openModal(entryId = null, type = 'verifikation', prefillData = {}) {
