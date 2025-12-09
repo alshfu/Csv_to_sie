@@ -1,18 +1,20 @@
 import codecs
 from datetime import datetime
 
+
 def _sanitize_for_cp437(text):
     """
     Sanitizes a string to be compatible with CP437 encoding.
     Replaces characters that cannot be encoded with '?'.
     """
     if not isinstance(text, str):
-        text = str(text) # Ensure it's a string first
+        text = str(text)  # Ensure it's a string first
 
     # Attempt to encode and decode to replace unsupported characters
     # with '?' (or similar replacement character defined by the codec)
     # The 'replace' error handler is key here.
     return text.encode('cp437', errors='replace').decode('cp437')
+
 
 def validate_and_write(filename, lines):
     """
@@ -25,6 +27,7 @@ def validate_and_write(filename, lines):
                 f.write(line + '\n')
     except UnicodeEncodeError as e:
         raise ValueError(f"Encoding error for Swedish characters: {e}. Ensure input is CP437-compatible.")
+
 
 def generate_sie_file(filename, company_data, verifications):
     """
@@ -42,12 +45,14 @@ def generate_sie_file(filename, company_data, verifications):
     for ver in verifications:
         total = sum(trans['amount'] for trans in ver['transactions'])
         if abs(total) > 1e-6:
-            raise ValueError(f"Verification {ver.get('series', '')}{ver.get('number', '')} is unbalanced: sum = {total}")
+            raise ValueError(
+                f"Verification {ver.get('series', '')}{ver.get('number', '')} is unbalanced: sum = {total}")
 
         # Validate that all transaction accounts exist in the account plan
         for trans in ver['transactions']:
             if trans['account'] not in company_data.get('accounts', {}):
-                raise ValueError(f"Account {trans['account']} in verification {ver.get('number', '')} not found in account plan.")
+                raise ValueError(
+                    f"Account {trans['account']} in verification {ver.get('number', '')} not found in account plan.")
 
     # Step 2: Build lines for the SIE file
     lines = [
@@ -68,7 +73,6 @@ def generate_sie_file(filename, company_data, verifications):
         if "type" in acc_details:
             lines.append(f'#KTYP {acc_num} {_sanitize_for_cp437(acc_details["type"])}')
 
-
     # Add verifications
     for ver in verifications:
         ver_parts = [
@@ -80,14 +84,14 @@ def generate_sie_file(filename, company_data, verifications):
         ver_text = ver.get("text", "")
         if ver_text:
             ver_parts.append(f'"{_sanitize_for_cp437(ver_text)}"')
-        
+
         lines.append(" ".join(ver_parts))
         lines.append('{')
         for trans in ver['transactions']:
             # Format object string. It must always be present.
             obj_str = '{}'
             if trans.get('objects'):
-                obj_items = " ".join([f'{k} "{_sanitize_for_cp437(v)}"' for k,v in trans["objects"].items()])
+                obj_items = " ".join([f'{k} "{_sanitize_for_cp437(v)}"' for k, v in trans["objects"].items()])
                 if obj_items:
                     obj_str = f'{{{obj_items}}}'
 
@@ -101,18 +105,19 @@ def generate_sie_file(filename, company_data, verifications):
                 f'{trans["amount"]:.2f}',
                 trans_date
             ]
-            
+
             trans_text = trans.get("trans_text", "")
             if trans_text:
                 trans_parts.append(f'"{_sanitize_for_cp437(trans_text)}"')
-            
+
             lines.append(" ".join(trans_parts))
         lines.append('}')
-    
+
     # Step 3: Write the lines to the file with correct encoding
     validate_and_write(filename, lines)
 
     print(f"SIE file '{filename}' generated successfully.")
+
 
 # Example Usage (can be removed or adapted)
 if __name__ == '__main__':
@@ -146,10 +151,10 @@ if __name__ == '__main__':
             "series": "A",
             "number": "2",
             "date": "20251205",
-            "text": "", # Empty text
+            "text": "",  # Empty text
             "transactions": [
-                {"account": 2440, "amount": 1000.00, "trans_text": ""}, # Empty trans_text
-                {"account": 1910, "amount": -1000.00}, # Missing trans_text
+                {"account": 2440, "amount": 1000.00, "trans_text": ""},  # Empty trans_text
+                {"account": 1910, "amount": -1000.00},  # Missing trans_text
             ]
         }
     ]
