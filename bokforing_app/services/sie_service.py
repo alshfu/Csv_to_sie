@@ -84,23 +84,23 @@ def generate_sie_file(filename, company_data, verifications):
         lines.append(" ".join(ver_parts))
         lines.append('{')
         for trans in ver['transactions']:
-            trans_parts = [
-                f'#TRANS',
-                str(trans["account"])
-            ]
-
-            # Format objects string if present and not empty
-            obj_str = ''
+            # Format object string. It must always be present.
+            obj_str = '{}'
             if trans.get('objects'):
                 obj_items = " ".join([f'{k} "{_sanitize_for_cp437(v)}"' for k,v in trans["objects"].items()])
-                if obj_items: # Only add if there are actual objects
-                    obj_str = f' {{{obj_items}}}'
-            if obj_str:
-                trans_parts.append(obj_str)
+                if obj_items:
+                    obj_str = f'{{{obj_items}}}'
 
-            # Format amount to two decimal places
-            amount_str = f'{trans["amount"]:.2f}'
-            trans_parts.append(amount_str)
+            # Get the verification date to use for the transaction date
+            trans_date = ver["date"]
+
+            trans_parts = [
+                f'#TRANS',
+                str(trans["account"]),
+                obj_str,
+                f'{trans["amount"]:.2f}',
+                trans_date
+            ]
             
             trans_text = trans.get("trans_text", "")
             if trans_text:
